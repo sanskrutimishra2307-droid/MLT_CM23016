@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Pre-Lab: Verify TensorFlow.js</title>
+
+  <!-- Import TensorFlow.js -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+</head>
+
+<body>
+  <h2>TensorFlow.js Pre-Lab Verification
+    by CM23016 
+  </h2>
+
+  <script>
+    // Create two tensors
+    const a = tf.tensor([1, 2, 3]);
+    const b = tf.tensor([4, 5, 6]);
+
+    // Perform addition
+    const c = tf.add(a, b);
+
+    // Print results
+    a.print();  // [1, 2, 3]
+    b.print();  // [4, 5, 6]
+    c.print();  // [5, 7, 9]
+  </script>
+</body>
+</html>
