@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>House Price Prediction</title>
+
+  <!-- CSS -->
+  <link rel="stylesheet" href="style.css">
+
+  <!-- TensorFlow.js -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+
+<body>
+
+  <div class="container">
+    <h1>🏠 House Price Prediction</h1>
+    <p class="subtitle">
+      Linear Regression using Synthetic Data (TensorFlow.js)
+    </p>
+
+    <div class="input-box">
+      <input
+        type="number"
+        id="sizeInput"
+        placeholder="Enter house size (sq ft)"
+      />
+      <button onclick="predictPrice()">Predict Price</button>
+    </div>
+
+    <p id="result"></p>
+
+    <canvas id="priceChart"></canvas>
+  </div>
+
+  <!-- JavaScript -->
+  <script src="script.js"></script>
+
+</body>
+</html>
