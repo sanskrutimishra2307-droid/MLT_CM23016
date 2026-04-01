@@ -1,0 +1,1214 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>ISL Sign · Detector</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Syne:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.15.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+<style>
+:root{
+  --bg:#0a0a0f;
+  --surface:#12121a;
+  --surface2:#1a1a26;
+  --border:#2a2a3d;
+  --border2:#3a3a55;
+  --text:#f0eeff;
+  --muted:#6b6b8a;
+  --accent:#7c5cfc;
+  --accent2:#a78bfa;
+  --accent-dim:#7c5cfc22;
+  --green:#22d3a0;
+  --green-dim:#22d3a022;
+  --red:#ff5c7c;
+  --red-dim:#ff5c7c22;
+  --amber:#fbbf24;
+  --amber-dim:#fbbf2422;
+  --r:12px;
+  --r-sm:8px;
+  --font-head:'Syne',sans-serif;
+  --font-mono:'Space Mono',monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+html{scroll-behavior:smooth;}
+body{
+  font-family:var(--font-head);
+  background:var(--bg);
+  color:var(--text);
+  min-height:100vh;
+  font-size:14px;
+  overflow-x:hidden;
+}
+
+/* noise overlay */
+body::before{
+  content:'';
+  position:fixed;inset:0;
+  background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+  pointer-events:none;z-index:0;opacity:.5;
+}
+
+/* ── HEADER ── */
+.header{
+  position:sticky;top:0;z-index:100;
+  background:rgba(10,10,15,.85);
+  backdrop-filter:blur(16px);
+  border-bottom:1px solid var(--border);
+  padding:0 32px;
+  height:58px;
+  display:flex;align-items:center;justify-content:space-between;
+}
+.logo{
+  font-family:var(--font-head);
+  font-weight:800;
+  font-size:18px;
+  letter-spacing:-0.5px;
+  display:flex;align-items:center;gap:10px;
+}
+.logo-mark{
+  width:30px;height:30px;
+  background:var(--accent);
+  border-radius:6px;
+  display:flex;align-items:center;justify-content:center;
+  font-size:15px;
+}
+.logo em{color:var(--accent2);font-style:normal;}
+.header-pills{display:flex;gap:8px;}
+.pill{
+  padding:4px 12px;border-radius:20px;
+  font-family:var(--font-mono);font-size:10px;
+  display:flex;align-items:center;gap:5px;
+}
+.pill-idle{background:var(--surface2);color:var(--muted);border:1px solid var(--border);}
+.pill-ok{background:var(--green-dim);color:var(--green);border:1px solid var(--green);}
+.pill-busy{background:var(--amber-dim);color:var(--amber);border:1px solid var(--amber);}
+.dot{width:6px;height:6px;border-radius:50%;background:currentColor;}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
+.dot.blink{animation:blink 1s infinite;}
+
+/* ── TABS ── */
+.tabs{
+  background:var(--surface);
+  border-bottom:1px solid var(--border);
+  padding:0 32px;
+  display:flex;gap:0;
+}
+.tab{
+  padding:14px 22px;
+  font-family:var(--font-mono);font-size:11px;font-weight:700;
+  color:var(--muted);cursor:pointer;
+  border-bottom:2px solid transparent;
+  transition:all .2s;letter-spacing:.5px;
+  text-transform:uppercase;
+}
+.tab:hover{color:var(--text);}
+.tab.active{color:var(--accent2);border-bottom-color:var(--accent);}
+
+/* ── LAYOUT ── */
+.main{max-width:1160px;margin:0 auto;padding:28px 24px;position:relative;z-index:1;}
+.pane{display:none;}
+.pane.active{display:block;}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:20px;}
+@media(max-width:800px){.grid2{grid-template-columns:1fr;}.tabs,.header{padding:0 16px;}.main{padding:16px;}}
+
+/* ── CARD ── */
+.card{
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:var(--r);
+  padding:22px;
+  position:relative;overflow:hidden;
+}
+.card::before{
+  content:'';position:absolute;
+  top:0;left:0;right:0;height:2px;
+  background:linear-gradient(90deg,var(--accent),var(--accent2),transparent);
+  opacity:0;transition:opacity .3s;
+}
+.card:hover::before{opacity:1;}
+.card-label{
+  font-family:var(--font-mono);font-size:9px;letter-spacing:1.5px;
+  color:var(--accent2);text-transform:uppercase;margin-bottom:8px;
+}
+.card-title{
+  font-weight:700;font-size:16px;margin-bottom:4px;letter-spacing:-.3px;
+}
+.card-sub{font-family:var(--font-mono);font-size:11px;color:var(--muted);margin-bottom:16px;line-height:1.6;}
+
+/* ── CAMERA AREA ── */
+.cam-wrap{
+  position:relative;width:100%;aspect-ratio:4/3;
+  background:#000;border-radius:var(--r-sm);overflow:hidden;
+  border:1px solid var(--border2);
+}
+.cam-wrap video,.cam-wrap canvas{
+  position:absolute;top:0;left:0;width:100%;height:100%;
+  object-fit:cover;
+}
+.cam-wrap video{transform:scaleX(-1);}
+.cam-overlay-canvas{
+  position:absolute;top:0;left:0;width:100%;height:100%;
+  pointer-events:none;
+}
+.cam-badge{
+  position:absolute;top:10px;left:10px;
+  background:rgba(0,0,0,.7);
+  padding:4px 10px;border-radius:20px;
+  font-family:var(--font-mono);font-size:10px;color:var(--muted);
+  backdrop-filter:blur(8px);
+  border:1px solid var(--border);
+  display:flex;align-items:center;gap:5px;
+}
+.cam-badge.live{color:var(--green);border-color:var(--green);}
+.cam-placeholder{
+  position:absolute;inset:0;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  color:var(--muted);font-family:var(--font-mono);font-size:12px;gap:10px;
+}
+.cam-placeholder span{font-size:40px;}
+
+/* ── PREDICTION DISPLAY ── */
+.pred-display{
+  margin-top:14px;
+  background:var(--surface2);
+  border:1px solid var(--border);
+  border-radius:var(--r-sm);
+  padding:16px 18px;
+  min-height:90px;
+  position:relative;
+}
+.pred-label{font-family:var(--font-mono);font-size:9px;letter-spacing:1.5px;color:var(--muted);text-transform:uppercase;margin-bottom:6px;}
+.pred-letter{
+  font-family:var(--font-head);font-weight:800;
+  font-size:56px;line-height:1;color:var(--accent2);
+  letter-spacing:-2px;
+  transition:all .2s;
+}
+.pred-word{
+  font-family:var(--font-mono);font-size:13px;color:var(--text);
+  margin-top:6px;letter-spacing:1px;
+  min-height:20px;
+}
+.pred-conf{
+  position:absolute;top:16px;right:18px;
+  font-family:var(--font-mono);font-size:11px;
+  color:var(--muted);text-align:right;
+}
+.pred-conf strong{font-size:20px;color:var(--green);display:block;}
+.pred-placeholder{
+  font-family:var(--font-mono);font-size:12px;color:var(--muted);
+  display:flex;align-items:center;gap:8px;margin-top:14px;
+  font-style:italic;
+}
+
+/* ── HISTORY BAR ── */
+.hist-bar{
+  display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;min-height:32px;
+  align-items:center;
+}
+.hist-chip{
+  background:var(--accent-dim);
+  border:1px solid var(--accent);
+  color:var(--accent2);
+  padding:4px 10px;border-radius:20px;
+  font-family:var(--font-mono);font-size:11px;font-weight:700;
+  animation:popIn .15s ease;
+}
+@keyframes popIn{from{transform:scale(.7);opacity:0}to{transform:scale(1);opacity:1}}
+.hist-word{
+  background:var(--green-dim);border:1px solid var(--green);
+  color:var(--green);padding:4px 12px;border-radius:20px;
+  font-family:var(--font-mono);font-size:11px;
+}
+
+/* ── CONFIDENCE BARS ── */
+.conf-grid{display:flex;flex-direction:column;gap:6px;margin-top:10px;}
+.conf-row-item{display:flex;align-items:center;gap:8px;}
+.conf-row-item .cri-lbl{
+  font-family:var(--font-mono);font-size:10px;
+  width:22px;text-align:center;
+  color:var(--text);font-weight:700;
+}
+.conf-fill-bg{flex:1;height:5px;background:var(--border);border-radius:10px;overflow:hidden;}
+.conf-fill{height:100%;background:linear-gradient(90deg,var(--accent),var(--accent2));border-radius:10px;transition:width .3s ease;}
+.conf-row-item .cri-pct{
+  font-family:var(--font-mono);font-size:10px;
+  color:var(--muted);width:32px;text-align:right;
+}
+
+/* ── ISL GRID (gesture reference) ── */
+.isl-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(54px,1fr));
+  gap:6px;
+  max-height:280px;overflow-y:auto;
+  padding-right:4px;
+}
+.isl-grid::-webkit-scrollbar{width:3px;}
+.isl-grid::-webkit-scrollbar-thumb{background:var(--border2);border-radius:10px;}
+.isl-item{
+  background:var(--surface2);
+  border:1.5px solid var(--border);
+  border-radius:var(--r-sm);
+  padding:8px 4px;
+  text-align:center;cursor:pointer;
+  transition:all .15s;
+  user-select:none;
+}
+.isl-item:hover,.isl-item.selected{
+  border-color:var(--accent);
+  background:var(--accent-dim);
+}
+.isl-item .ii-letter{
+  font-family:var(--font-head);font-weight:800;font-size:18px;
+  color:var(--accent2);line-height:1;
+}
+.isl-item .ii-count{
+  font-family:var(--font-mono);font-size:8px;color:var(--muted);margin-top:3px;
+}
+.isl-item.has-data{border-color:var(--accent);background:var(--accent-dim);}
+.isl-item.has-data .ii-count{color:var(--accent2);}
+
+/* ── SAMPLE BAR ── */
+.sample-bar{
+  display:flex;justify-content:space-between;align-items:center;
+  background:var(--surface2);border:1px solid var(--border);
+  border-radius:var(--r-sm);padding:8px 14px;
+  font-family:var(--font-mono);font-size:11px;color:var(--muted);
+  margin:10px 0;
+}
+.sample-bar strong{color:var(--text);font-size:12px;}
+
+/* ── PROGRESS ── */
+.prog-wrap{
+  height:4px;background:var(--border);border-radius:10px;
+  overflow:hidden;margin:10px 0;display:none;
+}
+.prog-bar{
+  height:100%;border-radius:10px;
+  background:linear-gradient(90deg,var(--accent),var(--accent2));
+  width:0%;transition:width .25s;
+}
+.train-log{
+  font-family:var(--font-mono);font-size:10px;color:var(--muted);
+  min-height:14px;margin-bottom:6px;
+}
+
+/* ── STAT GRID ── */
+.stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px;}
+@media(max-width:600px){.stat-grid{grid-template-columns:1fr 1fr;}}
+.stat-card{
+  background:var(--surface2);border:1px solid var(--border);
+  border-radius:var(--r-sm);padding:12px 14px;
+}
+.stat-val{
+  font-family:var(--font-head);font-weight:800;font-size:24px;
+  color:var(--accent2);
+}
+.stat-lbl{font-family:var(--font-mono);font-size:9px;color:var(--muted);margin-top:2px;letter-spacing:.5px;text-transform:uppercase;}
+
+/* ── BUTTONS ── */
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:6px;
+  padding:9px 16px;border-radius:var(--r-sm);
+  font-family:var(--font-head);font-size:12px;font-weight:600;
+  border:none;cursor:pointer;transition:all .18s;width:100%;margin-top:8px;
+  letter-spacing:.3px;
+}
+.btn-primary{background:var(--accent);color:#fff;}
+.btn-primary:hover{background:#6a49f0;transform:translateY(-1px);}
+.btn-primary:disabled{background:#2a2a3d;color:var(--muted);cursor:not-allowed;transform:none;}
+.btn-ghost{background:transparent;color:var(--accent2);border:1.5px solid var(--accent);}
+.btn-ghost:hover{background:var(--accent-dim);}
+.btn-ghost:disabled{color:var(--muted);border-color:var(--border);cursor:not-allowed;}
+.btn-green{background:var(--green);color:#000;}
+.btn-green:hover{background:#1bb88c;transform:translateY(-1px);}
+.btn-green:disabled{background:#1a3a32;color:var(--muted);cursor:not-allowed;transform:none;}
+.btn-red{background:var(--red-dim);color:var(--red);border:1.5px solid var(--red);}
+.btn-red:hover{background:var(--red)22;}
+.btn-sm{padding:6px 12px;font-size:11px;width:auto;margin-top:0;}
+.btn-row{display:flex;gap:8px;margin-top:8px;}
+.btn-row .btn{flex:1;margin-top:0;}
+
+/* ── WORD BUILDER ── */
+.word-builder{
+  background:var(--surface2);border:1px solid var(--border);
+  border-radius:var(--r);padding:16px;margin-top:16px;
+}
+.wb-title{font-family:var(--font-mono);font-size:9px;letter-spacing:1.5px;color:var(--muted);text-transform:uppercase;margin-bottom:8px;}
+.wb-display{
+  font-family:var(--font-head);font-weight:800;font-size:28px;
+  color:var(--text);letter-spacing:2px;min-height:40px;
+  border-bottom:1px solid var(--border);padding-bottom:8px;margin-bottom:10px;
+}
+.wb-display span{color:var(--accent);}
+.wb-controls{display:flex;gap:6px;flex-wrap:wrap;}
+.wb-btn{
+  padding:6px 14px;border-radius:20px;
+  font-family:var(--font-mono);font-size:10px;font-weight:700;
+  border:1px solid var(--border);background:var(--surface);
+  color:var(--text);cursor:pointer;transition:all .15s;
+}
+.wb-btn:hover{border-color:var(--accent);color:var(--accent2);}
+.wb-btn.danger{color:var(--red);border-color:var(--red);}
+.wb-btn.ok{color:var(--green);border-color:var(--green);}
+
+/* ── REFERENCE PANE ── */
+.ref-alphabet{
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(80px,1fr));
+  gap:8px;
+}
+.ref-card{
+  background:var(--surface2);border:1px solid var(--border);
+  border-radius:var(--r-sm);padding:10px 6px;text-align:center;
+  transition:all .2s;cursor:default;
+}
+.ref-card:hover{border-color:var(--accent);transform:translateY(-2px);}
+.ref-card .rc-ltr{font-family:var(--font-head);font-weight:800;font-size:22px;color:var(--accent2);}
+.ref-card .rc-hand{font-size:24px;margin:4px 0;}
+.ref-card .rc-desc{font-family:var(--font-mono);font-size:8px;color:var(--muted);line-height:1.4;}
+
+/* ── TOAST ── */
+#toast{
+  position:fixed;bottom:24px;left:50%;
+  transform:translateX(-50%) translateY(16px);
+  background:var(--surface2);color:var(--text);
+  padding:9px 20px;border-radius:100px;
+  font-family:var(--font-mono);font-size:11px;
+  opacity:0;transition:all .3s;pointer-events:none;z-index:300;
+  border:1px solid var(--border2);white-space:nowrap;
+}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+
+/* ── SETTINGS ── */
+.setting-row{
+  display:flex;justify-content:space-between;align-items:center;
+  padding:13px 0;border-bottom:1px solid var(--border);
+}
+.setting-row:last-child{border-bottom:none;}
+.s-lbl{font-size:13px;font-weight:600;}
+.s-sub{font-family:var(--font-mono);font-size:10px;color:var(--muted);margin-top:2px;}
+.tog{position:relative;width:36px;height:20px;flex-shrink:0;}
+.tog input{opacity:0;width:0;height:0;position:absolute;}
+.tog-track{
+  position:absolute;inset:0;background:var(--border);border-radius:20px;cursor:pointer;transition:background .2s;
+}
+.tog input:checked + .tog-track{background:var(--accent);}
+.tog-track::before{
+  content:'';position:absolute;left:3px;top:3px;
+  width:14px;height:14px;background:#fff;border-radius:50%;transition:transform .2s;
+}
+.tog input:checked + .tog-track::before{transform:translateX(16px);}
+.sel{
+  padding:6px 10px;border:1.5px solid var(--border);border-radius:var(--r-sm);
+  font-family:var(--font-mono);font-size:11px;background:var(--surface);color:var(--text);
+  outline:none;cursor:pointer;
+}
+.sel:focus{border-color:var(--accent);}
+
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.fadeIn{animation:fadeIn .3s ease;}
+</style>
+</head>
+<body>
+
+<header class="header">
+  <div class="logo">
+    <div class="logo-mark">🤟</div>
+    ISL<em>Sign</em>
+    <span style="font-family:var(--font-mono);font-size:9px;color:var(--muted);font-weight:400;margin-left:4px;">v1.0 · Indian Sign Language</span>
+  </div>
+  <div class="header-pills">
+    <div id="mpChip" class="pill pill-idle"><span class="dot"></span><span id="mpTxt">MediaPipe</span></div>
+    <div id="modelChip" class="pill pill-idle"><span class="dot"></span><span id="modelTxt">No Model</span></div>
+  </div>
+</header>
+
+<nav class="tabs">
+  <div class="tab active" onclick="switchTab('detect')">⚡ Detect</div>
+  <div class="tab" onclick="switchTab('train')">🧠 Train</div>
+  <div class="tab" onclick="switchTab('reference')">📖 ISL Reference</div>
+  <div class="tab" onclick="switchTab('settings')">⚙ Settings</div>
+</nav>
+
+<main class="main">
+
+<!-- ══ DETECT PANE ══ -->
+<div class="pane active fadeIn" id="pane-detect">
+  <div class="grid2">
+    <div>
+      <div class="card">
+        <div class="card-label">Live Camera</div>
+        <div class="card-title">Hand Detection</div>
+        <div class="card-sub">Show your hand sign to the camera. Keep it centered & well-lit.</div>
+        <div class="cam-wrap" id="camWrap">
+          <video id="camVideo" autoplay playsinline muted style="display:none;"></video>
+          <canvas id="camCanvas"></canvas>
+          <div class="cam-badge" id="camBadge"><span class="dot"></span> STOPPED</div>
+          <div class="cam-placeholder" id="camPlaceholder">
+            <span>📷</span>
+            <span>Camera not started</span>
+          </div>
+        </div>
+        <div class="btn-row" style="margin-top:10px;">
+          <button class="btn btn-primary" id="btnStart" onclick="startCamera()">▶ Start Camera</button>
+          <button class="btn btn-ghost" id="btnStop" onclick="stopCamera()" style="display:none;">■ Stop</button>
+        </div>
+      </div>
+
+      <!-- Word Builder -->
+      <div class="word-builder">
+        <div class="wb-title">Word Builder</div>
+        <div class="wb-display" id="wbDisplay"><span>_</span></div>
+        <div class="wb-controls">
+          <button class="wb-btn ok" onclick="addLetterToWord()">+ Add Letter</button>
+          <button class="wb-btn" onclick="addSpace()">Space</button>
+          <button class="wb-btn danger" onclick="backspace()">⌫ Back</button>
+          <button class="wb-btn danger" onclick="clearWord()">✕ Clear</button>
+          <button class="wb-btn" onclick="speakWord()" id="btnSpeak">🔊 Speak</button>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="card">
+        <div class="card-label">Recognition</div>
+        <div class="card-title">Detected Sign</div>
+        <div class="pred-display" id="predDisplay">
+          <div class="pred-label">Current sign</div>
+          <div class="pred-letter" id="predLetter">—</div>
+          <div class="pred-conf" id="predConf">
+            <div style="font-family:var(--font-mono);font-size:9px;color:var(--muted);">confidence</div>
+            <strong id="predConfVal">—</strong>
+          </div>
+        </div>
+
+        <div style="margin-top:14px;">
+          <div style="font-family:var(--font-mono);font-size:9px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px;">Top predictions</div>
+          <div class="conf-grid" id="confGrid">
+            <div style="font-family:var(--font-mono);font-size:11px;color:var(--muted);font-style:italic;">Run detection to see scores</div>
+          </div>
+        </div>
+
+        <div style="margin-top:14px;">
+          <div style="font-family:var(--font-mono);font-size:9px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px;">Detected history</div>
+          <div class="hist-bar" id="histBar">
+            <span style="font-family:var(--font-mono);font-size:10px;color:var(--muted);font-style:italic;">—</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Landmark Visualiser -->
+      <div class="card" style="margin-top:16px;">
+        <div class="card-label">Hand Landmarks</div>
+        <div class="card-title">21-Point Skeleton</div>
+        <div class="card-sub">MediaPipe detects 21 keypoints per hand used as classifier input.</div>
+        <canvas id="landmarkCanvas" width="300" height="200" style="width:100%;border-radius:var(--r-sm);background:var(--surface2);border:1px solid var(--border);"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ TRAIN PANE ══ -->
+<div class="pane fadeIn" id="pane-train">
+  <div class="grid2">
+    <!-- Class selector -->
+    <div class="card">
+      <div class="card-label">Step 1 — Select Class</div>
+      <div class="card-title">ISL Alphabet Classes</div>
+      <div class="card-sub">Select a letter then collect hand landmark samples from webcam.</div>
+      <div class="isl-grid" id="islGrid"></div>
+      <div class="sample-bar">
+        <span>Selected: <strong id="selClass">—</strong></span>
+        <span id="selCount" style="font-family:var(--font-mono);">0 samples</span>
+      </div>
+    </div>
+
+    <!-- Collection -->
+    <div class="card">
+      <div class="card-label">Step 2 — Collect Samples</div>
+      <div class="card-title">Record Landmark Data</div>
+      <div class="card-sub">Start camera, hold sign steady, then capture samples.</div>
+      <div class="cam-wrap" id="trainCamWrap" style="aspect-ratio:4/3;">
+        <video id="trainVideo" autoplay playsinline muted style="display:none;"></video>
+        <canvas id="trainCanvas"></canvas>
+        <div class="cam-badge" id="trainBadge"><span class="dot"></span> STOPPED</div>
+        <div class="cam-placeholder" id="trainPlaceholder"><span>🖐️</span><span>Start camera to collect</span></div>
+      </div>
+      <div class="btn-row" style="margin-top:10px;">
+        <button class="btn btn-ghost" id="btnTrainCam" onclick="toggleTrainCam()">▶ Start Camera</button>
+        <button class="btn btn-primary" id="btnCapture" onclick="captureN()" disabled>📸 Capture 30</button>
+      </div>
+      <div class="sample-bar" style="margin-top:10px;">
+        <span id="capStatus" style="font-family:var(--font-mono);">Hold your sign steady before capturing</span>
+        <span id="capCount" style="color:var(--accent2);font-family:var(--font-mono);">—</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Train controls -->
+  <div class="card" style="margin-top:20px;">
+    <div class="card-label">Step 3 — Train & Deploy</div>
+    <div class="card-title">Train Classifier</div>
+    <div class="card-sub">2-layer dense network on 63-dimensional landmark vectors. Fast, accurate, browser-native.</div>
+    <div class="stat-grid">
+      <div class="stat-card"><div class="stat-val" id="stClasses">0</div><div class="stat-lbl">Classes</div></div>
+      <div class="stat-card"><div class="stat-val" id="stSamples">0</div><div class="stat-lbl">Samples</div></div>
+      <div class="stat-card"><div class="stat-val" id="stEpoch">—</div><div class="stat-lbl">Last Acc</div></div>
+      <div class="stat-card"><div class="stat-val" id="stLoss">—</div><div class="stat-lbl">Last Loss</div></div>
+    </div>
+    <div class="prog-wrap" id="trainProg"><div class="prog-bar" id="trainBar"></div></div>
+    <div class="train-log" id="trainLog">Waiting to train…</div>
+    <div class="btn-row">
+      <button class="btn btn-primary" id="btnTrain" onclick="trainModel()" disabled>🧠 Train Model</button>
+      <button class="btn btn-green" id="btnSave" onclick="saveModel()" disabled>💾 Save</button>
+      <button class="btn btn-ghost" onclick="loadModel()">📂 Load Saved</button>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-ghost btn-sm" style="width:auto;" onclick="clearAllSamples()">🗑 Clear Samples</button>
+      <button class="btn btn-ghost btn-sm" style="width:auto;margin-left:4px;" id="btnExport" onclick="exportSamples()" disabled>⬇ Export CSV</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ REFERENCE PANE ══ -->
+<div class="pane fadeIn" id="pane-reference">
+  <div class="card">
+    <div class="card-label">Indian Sign Language</div>
+    <div class="card-title">ISL Alphabet Reference</div>
+    <div class="card-sub">26 handshapes for A–Z in Indian Sign Language. Use these as visual guides when recording training samples.</div>
+    <div class="ref-alphabet" id="refAlphabet"></div>
+  </div>
+</div>
+
+<!-- ══ SETTINGS PANE ══ -->
+<div class="pane fadeIn" id="pane-settings">
+  <div class="grid2">
+    <div class="card">
+      <div class="card-title" style="margin-bottom:16px;">Detection Settings</div>
+      <div class="setting-row" style="padding-top:0;">
+        <div><div class="s-lbl">Smoothing frames</div><div class="s-sub">Average over N frames to reduce jitter</div></div>
+        <select class="sel" id="selSmooth"><option value="1">1 (off)</option><option value="3" selected>3</option><option value="5">5</option><option value="7">7</option></select>
+      </div>
+      <div class="setting-row">
+        <div><div class="s-lbl">Confidence threshold</div><div class="s-sub">Min % to display prediction</div></div>
+        <select class="sel" id="selThresh"><option value="0.5">50%</option><option value="0.65" selected>65%</option><option value="0.8">80%</option></select>
+      </div>
+      <div class="setting-row">
+        <div><div class="s-lbl">Auto add to history</div><div class="s-sub">Add sign to history when held for 1s</div></div>
+        <label class="tog"><input type="checkbox" id="togAuto" checked/><span class="tog-track"></span></label>
+      </div>
+      <div class="setting-row">
+        <div><div class="s-lbl">Show skeleton overlay</div><div class="s-sub">Draw 21-point hand landmarks on video</div></div>
+        <label class="tog"><input type="checkbox" id="togSkeleton" checked/><span class="tog-track"></span></label>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title" style="margin-bottom:16px;">Training Settings</div>
+      <div class="setting-row" style="padding-top:0;">
+        <div><div class="s-lbl">Epochs</div><div class="s-sub">More = better accuracy, slower</div></div>
+        <select class="sel" id="selEpochs"><option value="30">30</option><option value="60" selected>60</option><option value="100">100</option></select>
+      </div>
+      <div class="setting-row">
+        <div><div class="s-lbl">Learning rate</div><div class="s-sub">Adam optimizer</div></div>
+        <select class="sel" id="selLR"><option value="0.0001">0.0001</option><option value="0.001" selected>0.001</option><option value="0.01">0.01</option></select>
+      </div>
+      <div class="setting-row">
+        <div><div class="s-lbl">Hidden units</div><div class="s-sub">Dense layer width</div></div>
+        <select class="sel" id="selUnits"><option value="64">64</option><option value="128" selected>128</option><option value="256">256</option></select>
+      </div>
+      <div class="setting-row">
+        <div><div class="s-lbl">Data augmentation</div><div class="s-sub">Add Gaussian noise to landmark vectors</div></div>
+        <label class="tog"><input type="checkbox" id="togAug" checked/><span class="tog-track"></span></label>
+      </div>
+    </div>
+  </div>
+</div>
+
+</main>
+<div id="toast"></div>
+
+<script>
+"use strict";
+
+// ── ISL Alphabet data ──────────────────────────────
+const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+
+// ISL descriptions + representative emoji hints
+const ISL_DESC = {
+  A:'Fist, thumb beside index',B:'4 fingers up, thumb across palm',
+  C:'Curved hand, C-shape',D:'Index up, others curl with thumb',
+  E:'Fingers bent, touch thumb',F:'OK-like, 3 fingers up',
+  G:'Index & thumb point sideways',H:'Index & middle extend sideways',
+  I:'Pinky up, others fist',J:'Pinky trace J in air',
+  K:'Index & middle up, thumb between',L:'L-shape, index & thumb out',
+  M:'3 fingers over thumb',N:'2 fingers over thumb',
+  O:'All fingers & thumb form O',P:'K-shape pointing down',
+  Q:'G-shape pointing down',R:'Cross index & middle',
+  S:'Fist, thumb over fingers',T:'Thumb between index & middle',
+  U:'Index & middle up together',V:'V / peace sign',
+  W:'3 fingers up spread',X:'Index bent like hook',
+  Y:'Pinky & thumb out, hang loose',Z:'Index traces Z in air',
+};
+const ISL_EMOJI = {
+  A:'✊',B:'🖐️',C:'🤙',D:'☝️',E:'🤏',F:'👌',G:'👈',H:'🤞',
+  I:'🤙',J:'🤙',K:'✌️',L:'🤙',M:'✊',N:'✊',O:'👌',P:'👇',
+  Q:'👇',R:'🤞',S:'✊',T:'✊',U:'✌️',V:'✌️',W:'🤟',X:'☝️',
+  Y:'🤙',Z:'☝️',
+};
+
+// ── State ──────────────────────────────────────────
+const samples = {}; // letter → [[63 floats], ...]
+ALPHABET.forEach(l => samples[l] = []);
+let selectedClass = null;
+let trainedModel = null;
+let isTrained = false;
+
+// Camera state (detect)
+let detectStream = null;
+let detectRunning = false;
+let handsDetect = null;
+let mpCamera = null;
+
+// Camera state (train)
+let trainStream = null;
+let trainRunning = false;
+let handsTrainObj = null;
+let mpCameraTrainObj = null;
+let trainCamActive = false;
+let lastTrainLandmarks = null; // latest landmarks from train cam
+
+// Detection history
+let predHistory = [];
+const MAX_HIST = 12;
+let smoothBuffer = [];
+let holdTimer = null;
+let lastAddedLetter = null;
+let wordBuffer = '';
+let currentPredLetter = null;
+let holdStart = null;
+
+// ── UI helpers ─────────────────────────────────────
+function switchTab(name){
+  const names = ['detect','train','reference','settings'];
+  document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active',names[i]===name));
+  document.querySelectorAll('.pane').forEach(p=>p.classList.toggle('active',p.id==='pane-'+name));
+}
+
+function toast(msg){
+  const t=document.getElementById('toast');
+  t.textContent=msg;t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'),2800);
+}
+
+function setChip(id,state,txt){
+  const chip=document.getElementById(id);
+  chip.className='pill pill-'+state;
+  chip.querySelector('.dot').className='dot'+(state==='busy'?' blink':'');
+  chip.querySelector('[id$="Txt"]').textContent=txt;
+}
+
+// ── Landmark normaliser ────────────────────────────
+// Returns 63-d vector: normalised x,y,z for 21 landmarks relative to wrist
+function normaliseLandmarks(lms){
+  const base = lms[0]; // wrist
+  const vecs = lms.map(lm=>([lm.x - base.x, lm.y - base.y, lm.z - base.z]));
+  const flat = vecs.flat();
+  // scale by max abs value
+  const maxVal = Math.max(...flat.map(Math.abs)) || 1;
+  return flat.map(v=>v/maxVal);
+}
+
+// ── Render ISL grid (train tab) ────────────────────
+function renderISLGrid(){
+  const g = document.getElementById('islGrid');
+  g.innerHTML = '';
+  ALPHABET.forEach(l=>{
+    const count = samples[l].length;
+    const el = document.createElement('div');
+    el.className = 'isl-item' + (count>0?' has-data':'') + (selectedClass===l?' selected':'');
+    el.id = 'ii_'+l;
+    el.innerHTML = `<div class="ii-letter">${l}</div><div class="ii-count">${count}</div>`;
+    el.onclick = ()=>selectClass(l);
+    g.appendChild(el);
+  });
+}
+
+function selectClass(l){
+  selectedClass = l;
+  document.querySelectorAll('.isl-item').forEach(e=>e.classList.remove('selected'));
+  const el = document.getElementById('ii_'+l);
+  if(el) el.classList.add('selected');
+  document.getElementById('selClass').textContent = l + ' — ' + ISL_DESC[l];
+  document.getElementById('selCount').textContent = samples[l].length + ' samples';
+  document.getElementById('btnCapture').disabled = !trainCamActive;
+  refreshStats();
+}
+
+// ── Stats ──────────────────────────────────────────
+function refreshStats(){
+  const classes = ALPHABET.filter(l=>samples[l].length>0).length;
+  const total = ALPHABET.reduce((s,l)=>s+samples[l].length,0);
+  document.getElementById('stClasses').textContent = classes;
+  document.getElementById('stSamples').textContent = total;
+  document.getElementById('btnTrain').disabled = !(classes>=2);
+  document.getElementById('btnExport').disabled = total===0;
+  saveSamplesToStorage();
+}
+
+// ── LocalStorage persistence ───────────────────────
+function saveSamplesToStorage(){
+  const data = {};
+  ALPHABET.forEach(l=>{ if(samples[l].length>0) data[l]=samples[l]; });
+  try{ localStorage.setItem('isl_samples',JSON.stringify(data)); }catch{}
+}
+
+function loadSamplesFromStorage(){
+  try{
+    const data = JSON.parse(localStorage.getItem('isl_samples')||'{}');
+    Object.entries(data).forEach(([l,arr])=>{ if(samples[l]!==undefined) samples[l]=arr; });
+  }catch{}
+}
+
+// ── MediaPipe init (detect) ────────────────────────
+async function initMediaPipe(){
+  setChip('mpChip','busy','Loading…');
+  return new Promise((resolve,reject)=>{
+    handsDetect = new Hands({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`});
+    handsDetect.setOptions({maxNumHands:1,modelComplexity:1,minDetectionConfidence:.6,minTrackingConfidence:.5});
+    handsDetect.onResults(onDetectResults);
+    handsDetect.initialize().then(()=>{
+      setChip('mpChip','ok','MediaPipe ✓');
+      resolve();
+    }).catch(reject);
+  });
+}
+
+function onDetectResults(results){
+  const canvas = document.getElementById('camCanvas');
+  const ctx = canvas.getContext('2d');
+  const video = document.getElementById('camVideo');
+  canvas.width = video.videoWidth || 640;
+  canvas.height = video.videoHeight || 480;
+  ctx.save();
+  ctx.translate(canvas.width,0);ctx.scale(-1,1);
+  ctx.drawImage(results.image,0,0,canvas.width,canvas.height);
+  ctx.restore();
+
+  if(results.multiHandLandmarks && results.multiHandLandmarks.length>0){
+    const lms = results.multiHandLandmarks[0];
+    if(document.getElementById('togSkeleton').checked){
+      ctx.save();ctx.translate(canvas.width,0);ctx.scale(-1,1);
+      drawConnectors(ctx,lms,HAND_CONNECTIONS,{color:'#7c5cfc',lineWidth:2});
+      drawLandmarks(ctx,lms,{color:'#a78bfa',radius:3,lineWidth:1});
+      ctx.restore();
+    }
+    drawLandmarkVis(lms);
+    const vec = normaliseLandmarks(lms);
+    runInference(vec);
+  } else {
+    clearLandmarkVis();
+  }
+}
+
+// ── MediaPipe init (train) ─────────────────────────
+function initTrainMediaPipe(){
+  handsTrainObj = new Hands({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`});
+  handsTrainObj.setOptions({maxNumHands:1,modelComplexity:1,minDetectionConfidence:.6,minTrackingConfidence:.5});
+  handsTrainObj.onResults(onTrainResults);
+  handsTrainObj.initialize().catch(()=>{});
+}
+
+function onTrainResults(results){
+  const canvas = document.getElementById('trainCanvas');
+  const ctx = canvas.getContext('2d');
+  const video = document.getElementById('trainVideo');
+  canvas.width = video.videoWidth||640;
+  canvas.height = video.videoHeight||480;
+  ctx.save();ctx.translate(canvas.width,0);ctx.scale(-1,1);
+  ctx.drawImage(results.image,0,0,canvas.width,canvas.height);
+  ctx.restore();
+  if(results.multiHandLandmarks && results.multiHandLandmarks.length>0){
+    const lms = results.multiHandLandmarks[0];
+    ctx.save();ctx.translate(canvas.width,0);ctx.scale(-1,1);
+    drawConnectors(ctx,lms,HAND_CONNECTIONS,{color:'#22d3a0',lineWidth:2});
+    drawLandmarks(ctx,lms,{color:'#6ee7c7',radius:3});
+    ctx.restore();
+    lastTrainLandmarks = normaliseLandmarks(lms);
+    document.getElementById('capStatus').textContent='✓ Hand detected — ready to capture';
+  } else {
+    lastTrainLandmarks = null;
+    document.getElementById('capStatus').textContent='⚠ No hand detected — show hand to camera';
+  }
+}
+
+// ── Camera controls (detect) ───────────────────────
+async function startCamera(){
+  try{
+    if(!handsDetect) await initMediaPipe();
+    detectStream = await navigator.mediaDevices.getUserMedia({video:{width:640,height:480,facingMode:'user'}});
+    const video = document.getElementById('camVideo');
+    video.srcObject = detectStream;
+    video.style.display='none'; // hidden; canvas shows the draw
+    await video.play();
+    document.getElementById('camPlaceholder').style.display='none';
+
+    mpCamera = new Camera(video,{
+      onFrame:async()=>{ if(handsDetect) await handsDetect.send({image:video}); },
+      width:640,height:480
+    });
+    mpCamera.start();
+    detectRunning=true;
+    document.getElementById('camBadge').className='cam-badge live';
+    document.getElementById('camBadge').innerHTML='<span class="dot blink"></span> LIVE';
+    document.getElementById('btnStart').style.display='none';
+    document.getElementById('btnStop').style.display='inline-flex';
+    document.getElementById('btnStop').style.width='auto';
+  }catch(e){
+    toast('Camera error: '+e.message);
+  }
+}
+
+function stopCamera(){
+  mpCamera?.stop();
+  detectStream?.getTracks().forEach(t=>t.stop());
+  detectRunning=false;
+  document.getElementById('camBadge').className='cam-badge';
+  document.getElementById('camBadge').innerHTML='<span class="dot"></span> STOPPED';
+  document.getElementById('camPlaceholder').style.display='flex';
+  document.getElementById('btnStart').style.display='inline-flex';
+  document.getElementById('btnStop').style.display='none';
+  const canvas=document.getElementById('camCanvas');
+  canvas.getContext('2d').clearRect(0,0,canvas.width,canvas.height);
+  document.getElementById('predLetter').textContent='—';
+  document.getElementById('predConfVal').textContent='—';
+}
+
+// ── Camera controls (train) ───────────────────────
+async function toggleTrainCam(){
+  if(trainCamActive){ stopTrainCam(); return; }
+  try{
+    if(!handsTrainObj) initTrainMediaPipe();
+    trainStream = await navigator.mediaDevices.getUserMedia({video:{width:640,height:480,facingMode:'user'}});
+    const video = document.getElementById('trainVideo');
+    video.srcObject=trainStream;
+    video.style.display='none';
+    await video.play();
+    document.getElementById('trainPlaceholder').style.display='none';
+    mpCameraTrainObj = new Camera(video,{
+      onFrame:async()=>{ if(handsTrainObj) await handsTrainObj.send({image:video}); },
+      width:640,height:480
+    });
+    mpCameraTrainObj.start();
+    trainCamActive=true;
+    document.getElementById('trainBadge').className='cam-badge live';
+    document.getElementById('trainBadge').innerHTML='<span class="dot blink"></span> LIVE';
+    document.getElementById('btnTrainCam').textContent='■ Stop Camera';
+    if(selectedClass) document.getElementById('btnCapture').disabled=false;
+  }catch(e){ toast('Camera error: '+e.message); }
+}
+
+function stopTrainCam(){
+  mpCameraTrainObj?.stop();
+  trainStream?.getTracks().forEach(t=>t.stop());
+  trainCamActive=false;
+  document.getElementById('trainBadge').className='cam-badge';
+  document.getElementById('trainBadge').innerHTML='<span class="dot"></span> STOPPED';
+  document.getElementById('trainPlaceholder').style.display='flex';
+  document.getElementById('btnTrainCam').textContent='▶ Start Camera';
+  document.getElementById('btnCapture').disabled=true;
+  const c=document.getElementById('trainCanvas');
+  c.getContext('2d').clearRect(0,0,c.width,c.height);
+}
+
+// ── Capture N samples ──────────────────────────────
+async function captureN(){
+  if(!selectedClass || !trainCamActive){ toast('Select class and start camera first'); return; }
+  const N=30;
+  let captured=0;
+  document.getElementById('btnCapture').disabled=true;
+  for(let i=0;i<N;i++){
+    await new Promise(r=>setTimeout(r,80));
+    if(lastTrainLandmarks){
+      let vec = [...lastTrainLandmarks];
+      // data augmentation: add small noise
+      if(document.getElementById('togAug').checked){
+        samples[selectedClass].push([...vec]);
+        // 2 noisy copies
+        for(let j=0;j<2;j++){
+          samples[selectedClass].push(vec.map(v=>v+((Math.random()-.5)*.04)));
+        }
+        captured+=3;
+      } else {
+        samples[selectedClass].push(vec);
+        captured++;
+      }
+    }
+    document.getElementById('capCount').textContent=(i+1)+'/'+N;
+  }
+  document.getElementById('btnCapture').disabled=false;
+  document.getElementById('capCount').textContent='Done!';
+  document.getElementById('selCount').textContent=samples[selectedClass].length+' samples';
+  renderISLGrid();
+  refreshStats();
+  toast(`Captured ${captured} samples for ${selectedClass} ✓`);
+}
+
+// ── Train ──────────────────────────────────────────
+async function trainModel(){
+  const activeClasses = ALPHABET.filter(l=>samples[l].length>0);
+  if(activeClasses.length<2){ toast('Need ≥2 classes'); return; }
+  document.getElementById('btnTrain').disabled=true;
+  document.getElementById('trainProg').style.display='block';
+  setChip('modelChip','busy','Training…');
+
+  const xs=[],ys=[];
+  activeClasses.forEach((l,idx)=>{
+    samples[l].forEach(vec=>{
+      xs.push(vec);
+      ys.push(idx);
+    });
+  });
+
+  const xT = tf.tensor2d(xs);
+  const yT = tf.oneHot(tf.tensor1d(ys,'int32'),activeClasses.length);
+
+  if(trainedModel){ trainedModel.dispose(); trainedModel=null; }
+
+  const units = parseInt(document.getElementById('selUnits').value);
+  const epochs = parseInt(document.getElementById('selEpochs').value);
+  const lr = parseFloat(document.getElementById('selLR').value);
+
+  trainedModel = tf.sequential();
+  trainedModel.add(tf.layers.dense({inputShape:[63],units,activation:'relu',kernelInitializer:'glorotUniform'}));
+  trainedModel.add(tf.layers.batchNormalization());
+  trainedModel.add(tf.layers.dropout({rate:.3}));
+  trainedModel.add(tf.layers.dense({units:Math.floor(units/2),activation:'relu'}));
+  trainedModel.add(tf.layers.dropout({rate:.2}));
+  trainedModel.add(tf.layers.dense({units:activeClasses.length,activation:'softmax'}));
+  trainedModel.compile({optimizer:tf.train.adam(lr),loss:'categoricalCrossentropy',metrics:['accuracy']});
+
+  await trainedModel.fit(xT,yT,{
+    epochs,batchSize:Math.min(32,xs.length),shuffle:true,
+    validationSplit:xs.length>=20?.15:0,
+    callbacks:{onEpochEnd:(epoch,logs)=>{
+      const pct=Math.round(((epoch+1)/epochs)*100);
+      document.getElementById('trainBar').style.width=pct+'%';
+      const acc=logs.acc||logs.accuracy||0;
+      document.getElementById('stEpoch').textContent=(acc*100).toFixed(0)+'%';
+      document.getElementById('stLoss').textContent=(logs.loss||0).toFixed(3);
+      document.getElementById('trainLog').textContent=`Epoch ${epoch+1}/${epochs} · loss: ${(logs.loss||0).toFixed(4)} · acc: ${(acc*100).toFixed(1)}%`;
+    }}
+  });
+
+  xT.dispose();yT.dispose();
+  trainedModel._classIds = activeClasses;
+  isTrained=true;
+  document.getElementById('btnTrain').disabled=false;
+  document.getElementById('btnSave').disabled=false;
+  setChip('modelChip','ok',`Trained · ${activeClasses.length} signs`);
+  toast('Training complete 🎉');
+}
+
+// ── Save / Load model ──────────────────────────────
+async function saveModel(){
+  if(!trainedModel) return;
+  await trainedModel.save('indexeddb://isl-model-v1');
+  localStorage.setItem('isl_classIds',JSON.stringify(trainedModel._classIds));
+  toast('Model saved 💾');
+}
+
+async function loadModel(){
+  try{
+    trainedModel = await tf.loadLayersModel('indexeddb://isl-model-v1');
+    const ids = JSON.parse(localStorage.getItem('isl_classIds')||'[]');
+    trainedModel._classIds = ids;
+    isTrained=true;
+    document.getElementById('btnSave').disabled=false;
+    setChip('modelChip','ok',`Loaded · ${ids.length} signs`);
+    toast('Model loaded 📂');
+  }catch{ toast('No saved model — train one first'); }
+}
+
+// ── Inference ──────────────────────────────────────
+function runInference(vec){
+  if(!isTrained||!trainedModel) return;
+  const thresh = parseFloat(document.getElementById('selThresh').value);
+  const smoothN = parseInt(document.getElementById('selSmooth').value);
+
+  const input = tf.tensor2d([vec]);
+  const pred = trainedModel.predict(input);
+  const probs = pred.dataSync();
+  input.dispose();pred.dispose();
+
+  const classIds = trainedModel._classIds||[];
+  const results = classIds.map((l,i)=>({letter:l,prob:probs[i]})).sort((a,b)=>b.prob-a.prob);
+
+  // smoothing buffer
+  smoothBuffer.push(results[0]);
+  if(smoothBuffer.length>smoothN) smoothBuffer.shift();
+  const counts={};
+  smoothBuffer.forEach(r=>{counts[r.letter]=(counts[r.letter]||0)+r.prob;});
+  const topLetter = Object.entries(counts).sort((a,b)=>b[1]-a[1])[0][0];
+  const topProb = results.find(r=>r.letter===topLetter)?.prob||0;
+
+  if(topProb>=thresh){
+    document.getElementById('predLetter').textContent = topLetter;
+    document.getElementById('predConfVal').textContent = Math.round(topProb*100)+'%';
+    currentPredLetter = topLetter;
+
+    // auto-hold logic
+    if(document.getElementById('togAuto').checked){
+      if(topLetter!==lastAddedLetter){
+        if(!holdStart) holdStart=Date.now();
+        else if(Date.now()-holdStart>900){
+          // held for 1s — add to history
+          addToHistory(topLetter);
+          lastAddedLetter=topLetter;
+          holdStart=null;
+        }
+      } else { holdStart=null; }
+    }
+
+    // conf bars
+    const top3 = results.slice(0,3);
+    const bars = document.getElementById('confGrid');
+    bars.innerHTML='';
+    top3.forEach(r=>{
+      const pct=Math.round(r.prob*100);
+      bars.innerHTML+=`<div class="conf-row-item">
+        <span class="cri-lbl">${r.letter}</span>
+        <div class="conf-fill-bg"><div class="conf-fill" style="width:${pct}%"></div></div>
+        <span class="cri-pct">${pct}%</span>
+      </div>`;
+    });
+  } else {
+    document.getElementById('predLetter').textContent = '—';
+    document.getElementById('predConfVal').textContent = '—';
+    holdStart=null;
+    currentPredLetter=null;
+  }
+}
+
+function addToHistory(l){
+  predHistory.unshift(l);
+  if(predHistory.length>MAX_HIST) predHistory.pop();
+  renderHistory();
+  lastAddedLetter=l;
+}
+
+function renderHistory(){
+  const bar=document.getElementById('histBar');
+  bar.innerHTML='';
+  if(!predHistory.length){ bar.innerHTML='<span style="font-family:var(--font-mono);font-size:10px;color:var(--muted);font-style:italic;">—</span>'; return; }
+  predHistory.forEach(l=>{
+    bar.innerHTML+=`<span class="hist-chip">${l}</span>`;
+  });
+}
+
+// ── Word Builder ───────────────────────────────────
+function addLetterToWord(){
+  if(!currentPredLetter) return;
+  wordBuffer+=currentPredLetter;
+  renderWordDisplay();
+}
+function addSpace(){ wordBuffer+=' '; renderWordDisplay(); }
+function backspace(){ wordBuffer=wordBuffer.slice(0,-1); renderWordDisplay(); }
+function clearWord(){ wordBuffer=''; renderWordDisplay(); }
+function renderWordDisplay(){
+  const d=document.getElementById('wbDisplay');
+  d.innerHTML = wordBuffer ? wordBuffer.replace(/ /g,'&nbsp;')+'<span>_</span>' : '<span>_</span>';
+}
+function speakWord(){
+  if(!wordBuffer.trim()){ toast('Nothing to speak yet'); return; }
+  const utt=new SpeechSynthesisUtterance(wordBuffer);
+  utt.lang='en-IN';
+  speechSynthesis.speak(utt);
+}
+
+// ── Landmark visualiser ────────────────────────────
+function drawLandmarkVis(lms){
+  const canvas=document.getElementById('landmarkCanvas');
+  const ctx=canvas.getContext('2d');
+  const W=canvas.width,H=canvas.height;
+  ctx.clearRect(0,0,W,H);
+  // map landmarks to canvas
+  const pts=lms.map(lm=>({x:(1-lm.x)*W,y:lm.y*H}));
+  // connections
+  const CONNS=[[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[0,9],[9,10],[10,11],[11,12],[0,13],[13,14],[14,15],[15,16],[0,17],[17,18],[18,19],[19,20],[5,9],[9,13],[13,17]];
+  ctx.strokeStyle='#7c5cfc';ctx.lineWidth=1.5;
+  CONNS.forEach(([a,b])=>{
+    ctx.beginPath();ctx.moveTo(pts[a].x,pts[a].y);ctx.lineTo(pts[b].x,pts[b].y);ctx.stroke();
+  });
+  pts.forEach((p,i)=>{
+    ctx.beginPath();ctx.arc(p.x,p.y,i===0?5:3,0,Math.PI*2);
+    ctx.fillStyle=i===0?'#22d3a0':'#a78bfa';ctx.fill();
+  });
+}
+
+function clearLandmarkVis(){
+  const canvas=document.getElementById('landmarkCanvas');
+  canvas.getContext('2d').clearRect(0,0,canvas.width,canvas.height);
+}
+
+// ── Reference tab ──────────────────────────────────
+function renderReference(){
+  const grid=document.getElementById('refAlphabet');
+  grid.innerHTML='';
+  ALPHABET.forEach(l=>{
+    grid.innerHTML+=`<div class="ref-card">
+      <div class="rc-ltr">${l}</div>
+      <div class="rc-hand">${ISL_EMOJI[l]}</div>
+      <div class="rc-desc">${ISL_DESC[l]}</div>
+    </div>`;
+  });
+}
+
+// ── Export CSV ─────────────────────────────────────
+function exportSamples(){
+  const rows=['label,'+Array.from({length:63},(_,i)=>`v${i}`).join(',')];
+  ALPHABET.forEach(l=>{
+    samples[l].forEach(vec=>{ rows.push(l+','+vec.join(',')); });
+  });
+  const blob=new Blob([rows.join('\n')],{type:'text/csv'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+  a.download='isl_landmark_samples.csv';a.click();
+  toast('CSV exported ✓');
+}
+
+function clearAllSamples(){
+  if(!confirm('Clear all collected samples?')) return;
+  ALPHABET.forEach(l=>samples[l]=[]);
+  localStorage.removeItem('isl_samples');
+  renderISLGrid();refreshStats();
+  toast('All samples cleared');
+}
+
+// ── Boot ───────────────────────────────────────────
+(async()=>{
+  loadSamplesFromStorage();
+  renderISLGrid();
+  renderReference();
+  refreshStats();
+  renderWordDisplay();
+
+  // auto-load model
+  try{
+    trainedModel = await tf.loadLayersModel('indexeddb://isl-model-v1');
+    const ids = JSON.parse(localStorage.getItem('isl_classIds')||'[]');
+    trainedModel._classIds=ids;
+    isTrained=true;
+    setChip('modelChip','ok',`Auto-loaded · ${ids.length} signs`);
+    document.getElementById('btnSave').disabled=false;
+    toast('Model auto-loaded 🔄');
+  }catch{
+    setChip('modelChip','idle','No Model');
+  }
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,1041 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>VisionScan — Object Detection</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/tensorflow/4.10.0/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.2/dist/coco-ssd.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Bebas+Neue&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet"/>
+  <style>
+    :root {
+      --ink: #0a0a0a;
+      --paper: #f0ede8;
+      --cream: #e8e4dc;
+      --warm: #d4cfc5;
+      --accent: #e63529;
+      --accent2: #2563eb;
+      --accent3: #d97706;
+      --text: #1a1a1a;
+      --muted: #7a7570;
+      --rule: #c8c3b8;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: var(--paper);
+      color: var(--text);
+      font-family: 'DM Sans', sans-serif;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* Noise grain overlay */
+    body::after {
+      content: '';
+      position: fixed;
+      inset: 0;
+      opacity: 0.035;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+      pointer-events: none;
+      z-index: 9999;
+    }
+
+    /* Outer frame */
+    .frame {
+      min-height: 100vh;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      border-left: 3px solid var(--ink);
+      border-right: 3px solid var(--ink);
+      max-width: 1280px;
+      margin: 0 auto;
+    }
+
+    /* ─── TOP MASTHEAD ─── */
+    .masthead {
+      border-bottom: 3px solid var(--ink);
+      padding: 0;
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: stretch;
+    }
+
+    .masthead-left {
+      padding: 14px 20px;
+      border-right: 1px solid var(--rule);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .model-tag {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 9px;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: var(--muted);
+      background: var(--cream);
+      border: 1px solid var(--rule);
+      padding: 4px 8px;
+    }
+
+    .masthead-center {
+      padding: 16px 40px;
+      text-align: center;
+      border-right: 1px solid var(--rule);
+    }
+
+    .brand {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 42px;
+      letter-spacing: 4px;
+      color: var(--ink);
+      line-height: 1;
+    }
+
+    .brand-sub {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 8px;
+      letter-spacing: 4px;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+
+    .masthead-right {
+      padding: 14px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 10px;
+    }
+
+    .live-indicator {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 10px;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: var(--muted);
+      transition: color 0.3s;
+    }
+
+    .live-indicator.active { color: var(--accent); }
+    .live-indicator.loading { color: var(--accent3); }
+
+    .live-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+
+    .live-indicator.active .live-dot { animation: pulse 1s ease infinite; }
+
+    @keyframes pulse {
+      0%,100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.4); opacity: 0.6; }
+    }
+
+    .fps-mono {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 10px;
+      color: var(--muted);
+      padding: 4px 8px;
+      background: var(--cream);
+      border: 1px solid var(--rule);
+    }
+
+    /* ─── BODY ─── */
+    .body-grid {
+      display: grid;
+      grid-template-columns: 220px 1fr 220px;
+      align-items: start;
+    }
+
+    /* ─── LEFT SIDEBAR ─── */
+    .sidebar-left {
+      border-right: 1px solid var(--rule);
+      padding: 20px 0;
+      min-height: 100%;
+    }
+
+    .sidebar-section {
+      border-bottom: 1px solid var(--rule);
+      padding: 16px 18px;
+    }
+
+    .sidebar-section:last-child { border-bottom: none; }
+
+    .section-label {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 8px;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 12px;
+    }
+
+    /* Big stat numbers */
+    .big-stat {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .stat-row {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+    }
+
+    .stat-num {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 48px;
+      line-height: 1;
+      color: var(--ink);
+    }
+
+    .stat-num.accent { color: var(--accent); }
+    .stat-num.blue { color: var(--accent2); }
+    .stat-num.amber { color: var(--accent3); }
+
+    .stat-unit {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 9px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    /* Divider rule */
+    .rule-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 6px 0 10px;
+    }
+
+    .rule-line {
+      flex: 1;
+      height: 1px;
+      background: var(--rule);
+    }
+
+    .rule-text {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 7px;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    /* Detection list in sidebar */
+    .det-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      max-height: 260px;
+      overflow-y: auto;
+    }
+
+    .det-list::-webkit-scrollbar { width: 3px; }
+    .det-list::-webkit-scrollbar-thumb { background: var(--rule); }
+
+    .det-entry {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 0;
+      border-bottom: 1px dashed var(--rule);
+      animation: fade-up 0.2s ease;
+    }
+
+    @keyframes fade-up {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .det-entry:last-child { border-bottom: none; }
+
+    .det-left {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .det-emoji { font-size: 14px; }
+
+    .det-label {
+      font-size: 12px;
+      font-weight: 500;
+      text-transform: capitalize;
+    }
+
+    .det-pct {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 10px;
+      color: var(--accent);
+      font-weight: 600;
+    }
+
+    .conf-bar {
+      height: 2px;
+      background: var(--cream);
+      border-radius: 1px;
+      margin-top: 3px;
+      overflow: hidden;
+    }
+
+    .conf-fill {
+      height: 100%;
+      background: var(--accent);
+      border-radius: 1px;
+      transition: width 0.3s;
+    }
+
+    .sidebar-empty {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 10px;
+      color: var(--warm);
+      letter-spacing: 1px;
+    }
+
+    /* ─── CENTER FEED ─── */
+    .center-feed {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .video-wrapper {
+      position: relative;
+      background: var(--ink);
+      aspect-ratio: 16/9;
+      overflow: hidden;
+    }
+
+    #videoEl {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+      transform: scaleX(-1);
+    }
+
+    #canvasEl {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      transform: scaleX(-1);
+    }
+
+    /* Crosshair overlay decoration */
+    .crosshair {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 40px;
+      height: 40px;
+      pointer-events: none;
+      z-index: 5;
+      opacity: 0.15;
+    }
+
+    .crosshair::before, .crosshair::after {
+      content: '';
+      position: absolute;
+      background: var(--paper);
+    }
+
+    .crosshair::before {
+      width: 1px;
+      height: 100%;
+      left: 50%;
+      top: 0;
+    }
+
+    .crosshair::after {
+      height: 1px;
+      width: 100%;
+      top: 50%;
+      left: 0;
+    }
+
+    /* Edge tick marks */
+    .tick {
+      position: absolute;
+      background: rgba(240,237,232,0.3);
+    }
+
+    .tick-t { top: 0; left: 50%; width: 1px; height: 8px; }
+    .tick-b { bottom: 0; left: 50%; width: 1px; height: 8px; }
+    .tick-l { left: 0; top: 50%; height: 1px; width: 8px; }
+    .tick-r { right: 0; top: 50%; height: 1px; width: 8px; }
+
+    /* Boot overlay */
+    .boot-overlay {
+      position: absolute;
+      inset: 0;
+      background: var(--ink);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 20px;
+      z-index: 30;
+      transition: opacity 0.5s;
+    }
+
+    .boot-overlay.gone { opacity: 0; pointer-events: none; }
+
+    .boot-logo {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 72px;
+      color: var(--paper);
+      letter-spacing: 8px;
+      opacity: 0.9;
+    }
+
+    .boot-status {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 11px;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      color: var(--muted);
+      text-align: center;
+    }
+
+    .boot-bar-wrap {
+      width: 200px;
+      height: 2px;
+      background: rgba(240,237,232,0.1);
+    }
+
+    .boot-bar {
+      height: 100%;
+      background: var(--accent);
+      width: 0%;
+      transition: width 0.8s ease;
+    }
+
+    #startBtn {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 11px;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      background: transparent;
+      border: 1px solid rgba(240,237,232,0.4);
+      color: var(--paper);
+      padding: 12px 32px;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: none;
+    }
+
+    #startBtn:hover {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+
+    /* Scan line animation while live */
+    .scan-line {
+      position: absolute;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, rgba(230,53,41,0.6), transparent);
+      pointer-events: none;
+      z-index: 10;
+      animation: scan 4s linear infinite;
+      opacity: 0;
+    }
+
+    .scan-line.active { opacity: 1; }
+
+    @keyframes scan {
+      0% { top: 0%; }
+      100% { top: 100%; }
+    }
+
+    /* Bottom strip under video */
+    .feed-meta {
+      border-top: 1px solid var(--ink);
+      border-bottom: 1px solid var(--rule);
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr 1fr;
+    }
+
+    .meta-cell {
+      padding: 10px 16px;
+      border-right: 1px solid var(--rule);
+      text-align: center;
+    }
+
+    .meta-cell:last-child { border-right: none; }
+
+    .meta-val {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 26px;
+      color: var(--ink);
+      line-height: 1;
+    }
+
+    .meta-key {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 7px;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+
+    /* ─── RIGHT SIDEBAR ─── */
+    .sidebar-right {
+      border-left: 1px solid var(--rule);
+      padding: 20px 0;
+      min-height: 100%;
+    }
+
+    /* Seen tags */
+    .tag-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+    }
+
+    .seen-tag {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 9px;
+      letter-spacing: 1px;
+      padding: 4px 8px;
+      border: 1px solid var(--rule);
+      background: var(--cream);
+      color: var(--text);
+      text-transform: capitalize;
+      transition: all 0.2s;
+    }
+
+    .seen-tag.fresh {
+      border-color: var(--accent);
+      background: rgba(230,53,41,0.06);
+      color: var(--accent);
+    }
+
+    /* Column header rule */
+    .col-head {
+      padding: 0 18px 14px;
+      border-bottom: 2px solid var(--ink);
+      margin-bottom: 16px;
+    }
+
+    .col-head-title {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 22px;
+      letter-spacing: 2px;
+      color: var(--ink);
+    }
+
+    .col-head-desc {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 8px;
+      color: var(--muted);
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      margin-top: 1px;
+    }
+
+    /* ─── FOOTER ─── */
+    .footer-bar {
+      border-top: 3px solid var(--ink);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 20px;
+    }
+
+    .footer-note {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 9px;
+      color: var(--muted);
+      letter-spacing: 1px;
+    }
+
+    .footer-dots {
+      display: flex;
+      gap: 5px;
+    }
+
+    .footer-dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--rule);
+    }
+
+    .footer-dot:nth-child(1) { background: var(--accent); }
+    .footer-dot:nth-child(2) { background: var(--accent2); }
+    .footer-dot:nth-child(3) { background: var(--accent3); }
+
+    /* Tiny loader for boot */
+    @keyframes rot { to { transform: rotate(360deg); } }
+
+    .mini-spin {
+      width: 20px; height: 20px;
+      border: 2px solid rgba(240,237,232,0.15);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: rot 0.7s linear infinite;
+    }
+  </style>
+</head>
+<body>
+<div class="frame">
+
+  <!-- MASTHEAD -->
+  <header class="masthead">
+    <div class="masthead-left">
+      <span class="model-tag">COCO-SSD v2</span>
+      <span class="model-tag">TF 4.10</span>
+    </div>
+    <div class="masthead-center">
+      <div class="brand">VisionScan</div>
+      <div class="brand-sub">Real-time Object Detection System</div>
+    </div>
+    <div class="masthead-right">
+      <span class="fps-mono" id="fpsDisplay">— FPS</span>
+      <div class="live-indicator" id="liveIndicator">
+        <div class="live-dot"></div>
+        <span id="liveText">Initializing</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- BODY -->
+  <div class="body-grid">
+
+    <!-- LEFT: Stats + Detected -->
+    <aside class="sidebar-left">
+
+      <div class="col-head">
+        <div class="col-head-title">Metrics</div>
+        <div class="col-head-desc">Live statistics</div>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="section-label">Current Frame</div>
+        <div class="big-stat">
+          <div>
+            <div class="stat-num accent" id="objCount">0</div>
+            <div class="rule-title">
+              <div class="rule-line"></div>
+              <div class="rule-text">objects</div>
+              <div class="rule-line"></div>
+            </div>
+          </div>
+          <div>
+            <div class="stat-num blue" id="avgConf">0%</div>
+            <div class="rule-title">
+              <div class="rule-line"></div>
+              <div class="rule-text">avg conf</div>
+              <div class="rule-line"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="section-label">Session</div>
+        <div class="big-stat">
+          <div>
+            <div class="stat-num amber" id="uniqueCount">0</div>
+            <div class="rule-title">
+              <div class="rule-line"></div>
+              <div class="rule-text">unique types</div>
+              <div class="rule-line"></div>
+            </div>
+          </div>
+          <div>
+            <div class="stat-num" id="frameCount">0</div>
+            <div class="rule-title">
+              <div class="rule-line"></div>
+              <div class="rule-text">frames</div>
+              <div class="rule-line"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="section-label">Detected Now</div>
+        <div class="det-list" id="detectionList">
+          <div class="sidebar-empty">—</div>
+        </div>
+      </div>
+
+    </aside>
+
+    <!-- CENTER: Camera -->
+    <main class="center-feed">
+
+      <div class="video-wrapper">
+        <div class="crosshair"></div>
+        <div class="tick tick-t"></div>
+        <div class="tick tick-b"></div>
+        <div class="tick tick-l"></div>
+        <div class="tick tick-r"></div>
+        <div class="scan-line" id="scanLine"></div>
+
+        <video id="videoEl" autoplay muted playsinline></video>
+        <canvas id="canvasEl"></canvas>
+
+        <div class="boot-overlay" id="bootOverlay">
+          <div class="boot-logo">VS</div>
+          <div class="mini-spin" id="bootSpinner"></div>
+          <div class="boot-status" id="bootStatus">Loading model...</div>
+          <div class="boot-bar-wrap">
+            <div class="boot-bar" id="bootBar"></div>
+          </div>
+          <button id="startBtn" onclick="startCamera()">▶ Activate Camera</button>
+        </div>
+      </div>
+
+      <div class="feed-meta">
+        <div class="meta-cell">
+          <div class="meta-val" id="metaObjects">0</div>
+          <div class="meta-key">Objects</div>
+        </div>
+        <div class="meta-cell">
+          <div class="meta-val" id="metaFrames">0</div>
+          <div class="meta-key">Frames</div>
+        </div>
+        <div class="meta-cell">
+          <div class="meta-val" id="metaConf">0%</div>
+          <div class="meta-key">Confidence</div>
+        </div>
+        <div class="meta-cell">
+          <div class="meta-val" id="metaUnique">0</div>
+          <div class="meta-key">Unique</div>
+        </div>
+      </div>
+
+    </main>
+
+    <!-- RIGHT: History -->
+    <aside class="sidebar-right">
+
+      <div class="col-head">
+        <div class="col-head-title">Catalog</div>
+        <div class="col-head-desc">Session history</div>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="section-label">Seen this session <span id="seenCount" style="color:var(--accent)">0</span></div>
+        <div class="tag-grid" id="historyList">
+          <span style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--warm)">Nothing yet</span>
+        </div>
+      </div>
+
+      <div class="sidebar-section" style="margin-top: 16px;">
+        <div class="section-label">Color Legend</div>
+        <div id="legendList" style="display:flex;flex-direction:column;gap:6px;">
+          <span style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--warm)">Appears after detection</span>
+        </div>
+      </div>
+
+    </aside>
+
+  </div>
+
+  <!-- FOOTER -->
+  <footer class="footer-bar">
+    <div class="footer-note">VisionScan // COCO-SSD Model // 80 Object Classes</div>
+    <div class="footer-dots">
+      <div class="footer-dot"></div>
+      <div class="footer-dot"></div>
+      <div class="footer-dot"></div>
+    </div>
+    <div class="footer-note" id="footerTime">—</div>
+  </footer>
+
+</div>
+
+<script>
+  const video = document.getElementById('videoEl');
+  const canvas = document.getElementById('canvasEl');
+  const ctx = canvas.getContext('2d');
+  const bootOverlay = document.getElementById('bootOverlay');
+  const bootStatus = document.getElementById('bootStatus');
+  const bootBar = document.getElementById('bootBar');
+  const bootSpinner = document.getElementById('bootSpinner');
+  const startBtn = document.getElementById('startBtn');
+  const liveIndicator = document.getElementById('liveIndicator');
+  const liveText = document.getElementById('liveText');
+  const fpsDisplay = document.getElementById('fpsDisplay');
+  const scanLine = document.getElementById('scanLine');
+
+  let model = null;
+  let frameIndex = 0;
+  let lastFpsTs = performance.now();
+  let fpsBuf = 0;
+  let seenObjects = new Set();
+  let freshObjects = new Set();
+
+  const PALETTE = ['#e63529','#2563eb','#d97706','#059669','#7c3aed','#db2777','#0891b2','#65a30d'];
+  const colorMap = {};
+
+  function getColor(label) {
+    if (!colorMap[label]) {
+      colorMap[label] = PALETTE[Object.keys(colorMap).length % PALETTE.length];
+    }
+    return colorMap[label];
+  }
+
+  const EMOJIS = {
+    person:'🧍',car:'🚗',bicycle:'🚲',motorcycle:'🏍️',bus:'🚌',truck:'🚛',
+    cat:'🐱',dog:'🐶',bird:'🐦',horse:'🐴',cow:'🐄',sheep:'🐑',
+    elephant:'🐘',bear:'🐻',zebra:'🦓',giraffe:'🦒',backpack:'🎒',
+    umbrella:'☂️',handbag:'👜',suitcase:'🧳','sports ball':'⚽',
+    bottle:'🍾','wine glass':'🍷',cup:'☕',fork:'🍴',knife:'🔪',
+    spoon:'🥄',bowl:'🥣',banana:'🍌',apple:'🍎',sandwich:'🥪',
+    orange:'🍊',broccoli:'🥦',carrot:'🥕','hot dog':'🌭',pizza:'🍕',
+    donut:'🍩',cake:'🎂',chair:'🪑',couch:'🛋️',bed:'🛏️',
+    'dining table':'🍽️',toilet:'🚽',tv:'📺',laptop:'💻',mouse:'🖱️',
+    remote:'📱',keyboard:'⌨️','cell phone':'📱',book:'📚',clock:'🕐',
+    vase:'🏺',scissors:'✂️','teddy bear':'🧸',skateboard:'🛹',
+  };
+
+  function getEmoji(label) { return EMOJIS[label.toLowerCase()] || '◼'; }
+
+  function setStatus(state, text) {
+    liveIndicator.className = 'live-indicator ' + state;
+    liveText.textContent = text;
+  }
+
+  function updateClock() {
+    const now = new Date();
+    document.getElementById('footerTime').textContent =
+      now.toLocaleTimeString('en-US', { hour12: false });
+  }
+  updateClock();
+  setInterval(updateClock, 1000);
+
+  async function loadModel() {
+    setStatus('loading', 'Loading');
+    bootStatus.textContent = 'Fetching COCO-SSD model...';
+    bootBar.style.width = '20%';
+
+    try {
+      await new Promise(r => setTimeout(r, 300));
+      bootBar.style.width = '55%';
+      bootStatus.textContent = 'Compiling model...';
+
+      model = await cocoSsd.load({ base: 'lite_mobilenet_v2' });
+
+      bootBar.style.width = '100%';
+      bootStatus.textContent = 'Model ready';
+      bootSpinner.style.display = 'none';
+      startBtn.style.display = 'block';
+      setStatus('loading', 'Ready');
+    } catch (e) {
+      bootStatus.textContent = 'Model failed to load';
+      setStatus('error', 'Error');
+      console.error(e);
+    }
+  }
+
+  async function startCamera() {
+    startBtn.style.display = 'none';
+    bootSpinner.style.display = 'block';
+    bootStatus.textContent = 'Requesting camera access...';
+    bootBar.style.width = '0%';
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } }
+      });
+      video.srcObject = stream;
+      video.onloadedmetadata = () => {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        bootOverlay.classList.add('gone');
+        scanLine.classList.add('active');
+        setStatus('active', 'Live');
+        loop();
+      };
+    } catch (e) {
+      bootStatus.textContent = 'Camera access denied';
+      bootSpinner.style.display = 'none';
+      setStatus('error', 'No Cam');
+    }
+  }
+
+  async function loop() {
+    if (!model || video.readyState < 2) {
+      requestAnimationFrame(loop);
+      return;
+    }
+
+    const preds = await model.detect(video);
+    frameIndex++;
+
+    // FPS calc
+    const now = performance.now();
+    const elapsed = now - lastFpsTs;
+    if (elapsed > 600) {
+      const fps = Math.round(frameIndex / (elapsed / 1000));
+      fpsBuf = fpsBuf * 0.6 + fps * 0.4;
+      fpsDisplay.textContent = Math.round(fpsBuf) + ' FPS';
+      frameIndex = 0;
+      lastFpsTs = now;
+    }
+
+    drawBoxes(preds);
+    syncUI(preds);
+
+    requestAnimationFrame(loop);
+  }
+
+  function drawBoxes(preds) {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    preds.forEach(p => {
+      const [x, y, w, h] = p.bbox;
+      const color = getColor(p.class);
+      const pct = Math.round(p.score * 100);
+
+      // Shadow
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 8;
+
+      // Main rect — thin
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(x, y, w, h);
+      ctx.shadowBlur = 0;
+
+      // Corner L-brackets only
+      const L = 12;
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = color;
+      const pts = [
+        [[x,y+L],[x,y],[x+L,y]],
+        [[x+w-L,y],[x+w,y],[x+w,y+L]],
+        [[x,y+h-L],[x,y+h],[x+L,y+h]],
+        [[x+w-L,y+h],[x+w,y+h],[x+w,y+h-L]],
+      ];
+      pts.forEach(([a,b,c]) => {
+        ctx.beginPath();
+        ctx.moveTo(a[0],a[1]);
+        ctx.lineTo(b[0],b[1]);
+        ctx.lineTo(c[0],c[1]);
+        ctx.stroke();
+      });
+
+      // Label — bottom left of box
+      const lbl = p.class.toUpperCase() + ' ' + pct + '%';
+      ctx.font = '600 10px IBM Plex Mono, monospace';
+      const tw = ctx.measureText(lbl).width;
+
+      ctx.fillStyle = color;
+      ctx.fillRect(x, y + h, tw + 12, 18);
+      ctx.fillStyle = '#fff';
+      ctx.fillText(lbl, x + 6, y + h + 12);
+    });
+  }
+
+  let totalFrames = 0;
+
+  function syncUI(preds) {
+    totalFrames++;
+
+    const n = preds.length;
+    const avgC = n > 0
+      ? Math.round(preds.reduce((s, p) => s + p.score, 0) / n * 100)
+      : 0;
+
+    // Update stat numbers
+    document.getElementById('objCount').textContent = n;
+    document.getElementById('avgConf').textContent = avgC + '%';
+    document.getElementById('frameCount').textContent = totalFrames % 99999;
+    document.getElementById('uniqueCount').textContent = seenObjects.size;
+
+    // Mirror in meta strip
+    document.getElementById('metaObjects').textContent = n;
+    document.getElementById('metaFrames').textContent = totalFrames % 99999;
+    document.getElementById('metaConf').textContent = avgC + '%';
+    document.getElementById('metaUnique').textContent = seenObjects.size;
+
+    // Track new objects
+    freshObjects.clear();
+    preds.forEach(p => {
+      if (!seenObjects.has(p.class)) {
+        seenObjects.add(p.class);
+        freshObjects.add(p.class);
+      }
+    });
+
+    document.getElementById('seenCount').textContent = seenObjects.size;
+
+    // Detection list (left sidebar)
+    const list = document.getElementById('detectionList');
+    if (n === 0) {
+      list.innerHTML = '<span class="sidebar-empty">Nothing detected</span>';
+    } else {
+      const sorted = [...preds].sort((a,b) => b.score - a.score);
+      list.innerHTML = '';
+      sorted.forEach(p => {
+        const pct = Math.round(p.score * 100);
+        const color = getColor(p.class);
+        const el = document.createElement('div');
+        el.className = 'det-entry';
+        el.innerHTML = `
+          <div class="det-left">
+            <span class="det-emoji">${getEmoji(p.class)}</span>
+            <span class="det-label">${p.class}</span>
+          </div>
+          <div>
+            <div class="det-pct" style="color:${color}">${pct}%</div>
+            <div class="conf-bar" style="width:40px">
+              <div class="conf-fill" style="width:${pct}%;background:${color}"></div>
+            </div>
+          </div>
+        `;
+        list.appendChild(el);
+      });
+    }
+
+    // History tags (right sidebar)
+    if (seenObjects.size > 0) {
+      const histEl = document.getElementById('historyList');
+      histEl.innerHTML = '';
+      seenObjects.forEach(obj => {
+        const tag = document.createElement('span');
+        tag.className = 'seen-tag' + (freshObjects.has(obj) ? ' fresh' : '');
+        tag.textContent = getEmoji(obj) + ' ' + obj;
+        histEl.appendChild(tag);
+      });
+
+      // Legend
+      const legendEl = document.getElementById('legendList');
+      legendEl.innerHTML = '';
+      Object.entries(colorMap).forEach(([label, color]) => {
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex;align-items:center;gap:6px';
+        row.innerHTML = `
+          <div style="width:10px;height:10px;background:${color};flex-shrink:0"></div>
+          <span style="font-family:IBM Plex Mono,monospace;font-size:9px;text-transform:capitalize;color:var(--text)">${label}</span>
+        `;
+        legendEl.appendChild(row);
+      });
+    }
+  }
+
+  loadModel();
+</script>
+</body>
+</html>

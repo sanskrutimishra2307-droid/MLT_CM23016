@@ -1,0 +1,1346 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>RupeeLens — Indian Currency Classifier</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet"/>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.15.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.0/dist/mobilenet.min.js"></script>
+<style>
+/* ── ROOT ── */
+:root {
+  --navy:    #0d1b2a;
+  --navy2:   #162234;
+  --navy3:   #1e2f45;
+  --gold:    #c9972b;
+  --gold2:   #e8b84b;
+  --gold-dim:#c9972b22;
+  --saffron: #e07b30;
+  --saffron-dim:#e07b3018;
+  --green:   #1a6b3c;
+  --green2:  #22a05a;
+  --green-dim:#22a05a18;
+  --cream:   #f5eed8;
+  --cream2:  #fdf8ee;
+  --border:  rgba(201,151,43,.18);
+  --border2: rgba(201,151,43,.35);
+  --muted:   #7a8fa8;
+  --text:    #e8dfc8;
+  --r:       10px;
+  --r-sm:    6px;
+  --serif:   'Cormorant Garamond', Georgia, serif;
+  --mono:    'DM Mono', monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+html{scroll-behavior:smooth;}
+body{
+  font-family:var(--serif);
+  background:var(--navy);
+  color:var(--text);
+  min-height:100vh;
+  overflow-x:hidden;
+}
+
+/* ── TEXTURE ── */
+body::before{
+  content:'';position:fixed;inset:0;
+  background:
+    radial-gradient(ellipse 80% 60% at 20% 10%, rgba(201,151,43,.06) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 40% at 80% 80%, rgba(26,107,60,.07) 0%, transparent 55%),
+    url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.03'/%3E%3C/svg%3E");
+  pointer-events:none;z-index:0;
+}
+
+/* ── ORNAMENTAL BORDER (header) ── */
+.orn-line{
+  height:1px;
+  background:linear-gradient(90deg, transparent, var(--gold), var(--gold2), var(--gold), transparent);
+  opacity:.5;
+}
+.orn-line-thin{
+  height:1px;
+  background:linear-gradient(90deg, transparent, var(--border2), transparent);
+}
+
+/* ── HEADER ── */
+.header{
+  position:sticky;top:0;z-index:100;
+  background:rgba(13,27,42,.92);
+  backdrop-filter:blur(18px);
+  border-bottom:1px solid var(--border);
+}
+.header-inner{
+  max-width:1200px;margin:0 auto;
+  padding:0 28px;height:62px;
+  display:flex;align-items:center;justify-content:space-between;
+}
+.logo{
+  display:flex;align-items:baseline;gap:10px;
+}
+.logo-rupee{
+  font-size:28px;color:var(--gold2);
+  font-style:italic;font-weight:700;
+  line-height:1;
+}
+.logo-text{
+  font-size:22px;font-weight:700;
+  letter-spacing:-.5px;color:var(--cream);
+}
+.logo-text em{color:var(--gold);font-style:normal;}
+.logo-sub{
+  font-family:var(--mono);font-size:9px;
+  color:var(--muted);letter-spacing:1px;
+  text-transform:uppercase;margin-left:4px;
+}
+.header-right{display:flex;align-items:center;gap:10px;}
+.badge{
+  display:flex;align-items:center;gap:5px;
+  padding:4px 12px;border-radius:20px;
+  font-family:var(--mono);font-size:9px;letter-spacing:.5px;
+  text-transform:uppercase;
+}
+.badge-idle{background:var(--navy3);color:var(--muted);border:1px solid var(--border);}
+.badge-ok  {background:var(--green-dim);color:var(--green2);border:1px solid var(--green2);}
+.badge-busy{background:var(--gold-dim);color:var(--gold2);border:1px solid var(--gold);}
+.dot{width:6px;height:6px;border-radius:50%;background:currentColor;}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
+.dot.blink{animation:blink 1s infinite;}
+
+/* ── TABS ── */
+.tabs{
+  background:var(--navy2);
+  border-bottom:1px solid var(--border);
+  display:flex;padding:0 28px;max-width:100%;
+}
+.tab{
+  padding:13px 20px;
+  font-family:var(--mono);font-size:10px;font-weight:500;
+  color:var(--muted);cursor:pointer;
+  border-bottom:2px solid transparent;
+  transition:all .2s;text-transform:uppercase;letter-spacing:.8px;
+  white-space:nowrap;
+}
+.tab:hover{color:var(--text);}
+.tab.active{color:var(--gold2);border-bottom-color:var(--gold);}
+
+/* ── LAYOUT ── */
+.main{max-width:1200px;margin:0 auto;padding:28px 24px;position:relative;z-index:1;}
+.pane{display:none;}
+.pane.active{display:block;}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:20px;}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;}
+@media(max-width:820px){
+  .grid2,.grid3{grid-template-columns:1fr;}
+  .tabs{padding:0 16px;overflow-x:auto;}
+  .header-inner{padding:0 16px;}
+  .main{padding:16px;}
+}
+
+/* ── CARD ── */
+.card{
+  background:var(--navy2);
+  border:1px solid var(--border);
+  border-radius:var(--r);
+  padding:22px;
+  position:relative;overflow:hidden;
+}
+/* ornate top-border accent */
+.card::before{
+  content:'';position:absolute;top:0;left:0;right:0;height:2px;
+  background:linear-gradient(90deg,transparent,var(--gold),transparent);
+  opacity:0;transition:opacity .3s;
+}
+.card:hover::before{opacity:.6;}
+.card-kicker{
+  font-family:var(--mono);font-size:9px;letter-spacing:1.5px;
+  text-transform:uppercase;color:var(--gold);margin-bottom:7px;
+}
+.card-title{
+  font-size:18px;font-weight:700;letter-spacing:-.3px;
+  color:var(--cream);margin-bottom:3px;
+}
+.card-sub{
+  font-family:var(--mono);font-size:10px;color:var(--muted);
+  margin-bottom:16px;line-height:1.7;
+}
+
+/* ── NOTE TILES ── */
+.note-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(90px,1fr));
+  gap:8px;
+  margin-bottom:14px;
+}
+.note-tile{
+  background:var(--navy3);border:1.5px solid var(--border);
+  border-radius:var(--r-sm);padding:10px 6px;
+  text-align:center;cursor:pointer;
+  transition:all .18s;user-select:none;position:relative;
+}
+.note-tile:hover,.note-tile.selected{
+  border-color:var(--gold);background:var(--gold-dim);
+}
+.note-tile .nt-denom{
+  font-size:20px;font-weight:700;color:var(--gold2);font-family:var(--serif);
+  line-height:1;
+}
+.note-tile .nt-label{
+  font-family:var(--mono);font-size:8px;color:var(--muted);
+  margin-top:3px;letter-spacing:.5px;
+}
+.note-tile .nt-count{
+  position:absolute;top:-5px;right:-5px;
+  background:var(--gold);color:var(--navy);
+  font-family:var(--mono);font-size:8px;font-weight:700;
+  padding:2px 5px;border-radius:10px;display:none;
+}
+.note-tile.has-data .nt-count{display:block;}
+.note-tile.has-data{border-color:var(--gold);background:var(--gold-dim);}
+
+/* ── NOTE COLOR ACCENTS ── */
+.note-10 .nt-denom{color:#6bcef2;}
+.note-20 .nt-denom{color:#e07b30;}
+.note-50 .nt-denom{color:#b388e8;}
+.note-100 .nt-denom{color:#5fbf8a;}
+.note-200 .nt-denom{color:#f7c84b;}
+.note-500 .nt-denom{color:#e8806a;}
+.note-2000 .nt-denom{color:#f4a0c0;}
+
+/* ── CAMERA ── */
+.cam-wrap{
+  position:relative;width:100%;aspect-ratio:4/3;
+  background:#050d14;border-radius:var(--r-sm);overflow:hidden;
+  border:1px solid var(--border2);
+}
+.cam-wrap video,.cam-wrap canvas{
+  position:absolute;top:0;left:0;
+  width:100%;height:100%;object-fit:cover;
+}
+.cam-wrap video{transform:scaleX(-1);}
+.cam-ph{
+  position:absolute;inset:0;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  color:var(--muted);font-family:var(--mono);font-size:11px;gap:8px;
+}
+.cam-ph span{font-size:36px;}
+.cam-live-badge{
+  position:absolute;top:10px;left:10px;
+  background:rgba(13,27,42,.8);backdrop-filter:blur(8px);
+  border:1px solid var(--border);
+  padding:3px 10px;border-radius:20px;
+  font-family:var(--mono);font-size:9px;
+  display:flex;align-items:center;gap:5px;
+  color:var(--muted);
+}
+.cam-live-badge.live{color:var(--green2);border-color:var(--green2);}
+
+/* ── SAMPLE BAR ── */
+.sample-bar{
+  display:flex;justify-content:space-between;align-items:center;
+  background:var(--navy3);border:1px solid var(--border);
+  border-radius:var(--r-sm);padding:8px 14px;
+  font-family:var(--mono);font-size:10px;color:var(--muted);
+  margin:10px 0;
+}
+.sample-bar strong{color:var(--cream);}
+
+/* ── PROGRESS ── */
+.prog-wrap{height:3px;background:var(--navy3);border-radius:10px;overflow:hidden;margin:10px 0;display:none;}
+.prog-bar{height:100%;border-radius:10px;background:linear-gradient(90deg,var(--gold),var(--gold2));width:0%;transition:width .25s;}
+.train-log{font-family:var(--mono);font-size:9px;color:var(--muted);min-height:12px;margin-bottom:4px;line-height:1.6;}
+
+/* ── STAT GRID ── */
+.stat-row{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px;}
+@media(max-width:600px){.stat-row{grid-template-columns:1fr 1fr;}}
+.stat-card{
+  background:var(--navy3);border:1px solid var(--border);
+  border-radius:var(--r-sm);padding:12px 14px;
+}
+.stat-val{font-size:22px;font-weight:700;color:var(--gold2);font-family:var(--serif);}
+.stat-lbl{font-family:var(--mono);font-size:8px;color:var(--muted);margin-top:2px;text-transform:uppercase;letter-spacing:.5px;}
+
+/* ── BUTTONS ── */
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:6px;
+  padding:9px 16px;border-radius:var(--r-sm);
+  font-family:var(--serif);font-size:13px;font-weight:600;
+  border:none;cursor:pointer;transition:all .18s;width:100%;margin-top:8px;
+  letter-spacing:.2px;
+}
+.btn-gold{background:var(--gold);color:var(--navy);}
+.btn-gold:hover{background:var(--gold2);transform:translateY(-1px);}
+.btn-gold:disabled{background:var(--navy3);color:var(--muted);cursor:not-allowed;transform:none;}
+.btn-ghost{background:transparent;color:var(--gold2);border:1.5px solid var(--gold);}
+.btn-ghost:hover{background:var(--gold-dim);}
+.btn-ghost:disabled{color:var(--muted);border-color:var(--border);cursor:not-allowed;}
+.btn-green{background:var(--green);color:#fff;}
+.btn-green:hover{background:var(--green2);transform:translateY(-1px);}
+.btn-green:disabled{background:#0d2a1c;color:var(--muted);cursor:not-allowed;transform:none;}
+.btn-sm{padding:6px 12px;font-size:11px;width:auto;margin-top:0;}
+.btn-row{display:flex;gap:8px;margin-top:8px;}
+.btn-row .btn{flex:1;margin-top:0;}
+
+/* ── RESULT CARD ── */
+.result-card{
+  background:var(--navy3);border:1.5px solid var(--border2);
+  border-radius:var(--r);padding:20px;margin-top:14px;
+  display:none;animation:fadeUp .3s ease;
+}
+.result-card.show{display:block;}
+.result-denom-display{
+  font-size:64px;font-weight:700;color:var(--gold2);
+  font-family:var(--serif);font-style:italic;
+  line-height:1;margin-bottom:4px;
+}
+.result-name{font-size:16px;font-weight:600;color:var(--cream);margin-bottom:2px;}
+.result-conf-txt{font-family:var(--mono);font-size:10px;color:var(--muted);}
+.conf-bars{display:flex;flex-direction:column;gap:5px;margin-top:12px;}
+.conf-item{display:flex;align-items:center;gap:8px;}
+.conf-item .ci-label{font-family:var(--mono);font-size:10px;width:44px;color:var(--text);text-align:right;}
+.conf-item .ci-bar-bg{flex:1;height:4px;background:var(--navy);border-radius:10px;overflow:hidden;}
+.conf-item .ci-bar{height:100%;border-radius:10px;background:linear-gradient(90deg,var(--gold),var(--gold2));transition:width .4s ease;}
+.conf-item .ci-pct{font-family:var(--mono);font-size:9px;color:var(--muted);width:30px;text-align:right;}
+
+/* ── WALLET ── */
+.wallet-display{
+  background:linear-gradient(135deg,var(--navy3),#0d1e32);
+  border:1px solid var(--border2);border-radius:var(--r);
+  padding:22px;text-align:center;
+  position:relative;overflow:hidden;
+}
+.wallet-display::before{
+  content:'₹';
+  position:absolute;right:-10px;bottom:-20px;
+  font-size:120px;font-weight:700;color:var(--gold);opacity:.05;
+  font-family:var(--serif);
+}
+.wallet-total{
+  font-size:56px;font-weight:700;color:var(--gold2);
+  font-family:var(--serif);font-style:italic;line-height:1;
+}
+.wallet-label{font-family:var(--mono);font-size:9px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-top:4px;}
+.wallet-breakdown{
+  display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:14px;
+}
+.wb-item{
+  background:rgba(255,255,255,.04);border:1px solid var(--border);
+  border-radius:var(--r-sm);padding:8px 4px;text-align:center;
+}
+.wb-item .wbi-denom{font-size:15px;font-weight:700;font-family:var(--serif);color:var(--gold2);}
+.wb-item .wbi-count{font-family:var(--mono);font-size:8px;color:var(--muted);margin-top:2px;}
+.wallet-history{
+  margin-top:14px;max-height:200px;overflow-y:auto;
+}
+.wh-entry{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:8px 12px;border-bottom:1px solid var(--border);
+  font-family:var(--mono);font-size:10px;animation:fadeUp .2s ease;
+}
+.wh-entry:last-child{border-bottom:none;}
+.wh-entry .whe-denom{color:var(--gold2);font-weight:500;}
+.wh-entry .whe-time{color:var(--muted);}
+
+/* ── LIVE PREDICT ── */
+.live-badge{
+  position:absolute;top:10px;right:10px;
+  background:rgba(226,68,68,.85);color:#fff;
+  font-family:var(--mono);font-size:9px;font-weight:500;
+  padding:3px 9px;border-radius:20px;
+  display:none;
+}
+.live-badge.show{display:block;}
+
+/* ── VOICE CONTROL ── */
+.voice-btn{
+  background:var(--saffron-dim);border:1.5px solid var(--saffron);
+  color:var(--saffron);border-radius:var(--r-sm);
+  padding:9px 16px;font-family:var(--serif);font-size:13px;font-weight:600;
+  cursor:pointer;transition:all .18s;width:100%;margin-top:8px;
+  display:flex;align-items:center;justify-content:center;gap:6px;
+}
+.voice-btn:hover{background:rgba(224,123,48,.2);}
+.voice-btn.speaking{
+  background:rgba(224,123,48,.25);
+  animation:voicePulse 1s infinite;
+}
+@keyframes voicePulse{0%,100%{box-shadow:0 0 0 0 rgba(224,123,48,.4)}50%{box-shadow:0 0 0 6px rgba(224,123,48,0)}}
+
+/* ── ACCESS PANEL ── */
+.access-panel{
+  background:linear-gradient(135deg,rgba(26,107,60,.15),rgba(26,107,60,.05));
+  border:1px solid rgba(26,107,60,.4);border-radius:var(--r);
+  padding:18px;margin-top:16px;
+}
+.access-title{
+  font-family:var(--mono);font-size:9px;letter-spacing:1.5px;
+  text-transform:uppercase;color:var(--green2);margin-bottom:10px;
+}
+.access-controls{display:flex;gap:8px;flex-wrap:wrap;}
+.access-btn{
+  padding:7px 14px;border-radius:20px;
+  border:1px solid rgba(34,160,90,.4);background:rgba(34,160,90,.1);
+  color:var(--green2);font-family:var(--mono);font-size:10px;
+  cursor:pointer;transition:all .15s;
+}
+.access-btn:hover{background:rgba(34,160,90,.2);}
+.access-btn.active{background:var(--green);color:#fff;border-color:var(--green);}
+
+/* ── INFO / REFERENCE ── */
+.note-ref-grid{
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;
+}
+.note-ref-card{
+  background:var(--navy3);border:1px solid var(--border);
+  border-radius:var(--r-sm);padding:12px;
+  border-left:3px solid var(--gold);transition:all .2s;
+}
+.note-ref-card:hover{border-left-color:var(--gold2);transform:translateY(-2px);}
+.nrc-denom{font-size:22px;font-weight:700;font-family:var(--serif);color:var(--gold2);}
+.nrc-name{font-family:var(--mono);font-size:9px;color:var(--muted);margin-top:2px;text-transform:uppercase;letter-spacing:.5px;}
+.nrc-color{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:4px;vertical-align:middle;}
+.nrc-fact{font-size:11px;color:var(--muted);margin-top:6px;line-height:1.5;}
+
+/* ── TOAST ── */
+#toast{
+  position:fixed;bottom:24px;left:50%;
+  transform:translateX(-50%) translateY(16px);
+  background:var(--navy3);color:var(--cream);
+  padding:9px 20px;border-radius:100px;
+  font-family:var(--mono);font-size:10px;
+  opacity:0;transition:all .3s;pointer-events:none;z-index:300;
+  border:1px solid var(--border2);white-space:nowrap;
+}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+
+/* ── DROP ZONE ── */
+.drop-zone{
+  border:2px dashed var(--border2);border-radius:var(--r-sm);
+  padding:28px 16px;text-align:center;cursor:pointer;
+  transition:all .2s;background:var(--navy3);
+}
+.drop-zone:hover,.drop-zone.over{border-color:var(--gold);background:var(--gold-dim);}
+.drop-zone p{font-family:var(--mono);font-size:10px;color:var(--muted);margin-top:4px;}
+.drop-zone strong{color:var(--gold2);}
+.drop-zone span{font-size:28px;display:block;margin-bottom:6px;}
+.prev-img{width:100%;border-radius:var(--r-sm);margin-top:10px;display:none;max-height:180px;object-fit:cover;border:1px solid var(--border);}
+
+/* ── SETTINGS ROWS ── */
+.setting-row{display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid var(--border);}
+.setting-row:last-child{border-bottom:none;}
+.s-lbl{font-size:14px;font-weight:600;color:var(--cream);}
+.s-sub{font-family:var(--mono);font-size:9px;color:var(--muted);margin-top:2px;}
+.sel{padding:5px 10px;border:1px solid var(--border);border-radius:var(--r-sm);font-family:var(--mono);font-size:10px;background:var(--navy);color:var(--text);outline:none;cursor:pointer;}
+.sel:focus{border-color:var(--gold);}
+.tog{position:relative;width:36px;height:20px;flex-shrink:0;}
+.tog input{opacity:0;width:0;height:0;position:absolute;}
+.tog-track{position:absolute;inset:0;background:var(--border);border-radius:20px;cursor:pointer;transition:background .2s;}
+.tog input:checked+.tog-track{background:var(--gold);}
+.tog-track::before{content:'';position:absolute;left:3px;top:3px;width:14px;height:14px;background:#fff;border-radius:50%;transition:transform .2s;}
+.tog input:checked+.tog-track::before{transform:translateX(16px);}
+
+@keyframes fadeUp{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header class="header">
+  <div class="header-inner">
+    <div class="logo">
+      <div class="logo-rupee">₹</div>
+      <div>
+        <div class="logo-text">Rupee<em>Lens</em></div>
+      </div>
+      <div class="logo-sub">Indian Currency Classifier</div>
+    </div>
+    <div class="header-right">
+      <div id="mnChip" class="badge badge-idle"><span class="dot"></span><span id="mnTxt">MobileNet</span></div>
+      <div id="mdChip" class="badge badge-idle"><span class="dot"></span><span id="mdTxt">No Model</span></div>
+    </div>
+  </div>
+  <div class="orn-line"></div>
+</header>
+
+<!-- TABS -->
+<nav class="tabs">
+  <div class="tab active" onclick="switchTab('detect')">⚡ Detect</div>
+  <div class="tab" onclick="switchTab('train')">🧠 Train</div>
+  <div class="tab" onclick="switchTab('wallet')">👛 Wallet</div>
+  <div class="tab" onclick="switchTab('reference')">📖 Notes</div>
+  <div class="tab" onclick="switchTab('settings')">⚙ Settings</div>
+</nav>
+
+<main class="main">
+
+<!-- ════ DETECT ════ -->
+<div class="pane active" id="pane-detect">
+  <div class="grid2">
+    <!-- Camera / Upload -->
+    <div class="card">
+      <div class="card-kicker">Live Detection</div>
+      <div class="card-title">Show a Note</div>
+      <div class="card-sub">Hold the currency note flat facing the camera. Ensure good lighting.</div>
+
+      <div class="cam-wrap" id="detectCamWrap">
+        <video id="detectVideo" autoplay playsinline muted style="display:none;"></video>
+        <canvas id="detectCanvas"></canvas>
+        <div class="cam-ph" id="detectPh"><span>₹</span><span>Camera not started</span></div>
+        <div class="cam-live-badge" id="detectBadge"><span class="dot"></span> OFF</div>
+        <div class="live-badge" id="liveBadge">● LIVE</div>
+      </div>
+
+      <div class="btn-row" style="margin-top:10px;">
+        <button class="btn btn-ghost" id="btnDetectCam" onclick="toggleDetectCam()">▶ Camera</button>
+        <button class="btn btn-gold" id="btnSnap" onclick="snapPredict()" disabled>📸 Snap & Detect</button>
+      </div>
+
+      <!-- Upload -->
+      <div class="drop-zone" id="detectDrop" onclick="document.getElementById('detectFile').click()" style="margin-top:12px;">
+        <span>📂</span>
+        <p>Or drop a note photo / <strong>click to upload</strong></p>
+        <input type="file" id="detectFile" accept="image/*" style="display:none;" onchange="handleDetectUpload(event)"/>
+      </div>
+      <img id="detectPrev" class="prev-img" alt="preview"/>
+
+      <!-- Live toggle -->
+      <button class="btn btn-ghost" id="btnLive" onclick="toggleLive()" disabled style="margin-top:8px;">🔴 Live Classify</button>
+
+      <!-- Voice -->
+      <button class="voice-btn" id="btnVoice" onclick="speakResult()">🔊 Speak Result</button>
+
+      <!-- Accessibility panel -->
+      <div class="access-panel">
+        <div class="access-title">♿ Accessibility</div>
+        <div class="access-controls">
+          <button class="access-btn active" id="btnAutoSpeak" onclick="toggleAutoSpeak(this)">Auto-Speak ON</button>
+          <button class="access-btn" id="btnHindi" onclick="toggleLang(this)">हिंदी</button>
+          <button class="access-btn" id="btnMarathi" onclick="toggleMarathi(this)">मराठी</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Result -->
+    <div class="card">
+      <div class="card-kicker">Recognition Result</div>
+      <div class="card-title">Detected Note</div>
+      <div style="text-align:center;padding:40px 0;color:var(--muted);font-family:var(--mono);font-size:11px;font-style:italic;" id="resultPh">Run a detection to see results</div>
+      <div class="result-card" id="resultCard">
+        <div class="result-denom-display" id="rDenom">—</div>
+        <div class="result-name" id="rName">—</div>
+        <div class="result-conf-txt" id="rConf">—</div>
+        <div class="conf-bars" id="confBars"></div>
+        <div class="btn-row" style="margin-top:14px;">
+          <button class="btn btn-green btn-sm" style="width:auto;flex:1;" onclick="addToWallet()">+ Add to Wallet</button>
+          <button class="btn btn-ghost btn-sm" style="width:auto;" onclick="speakResult()">🔊 Speak</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════ TRAIN ════ -->
+<div class="pane" id="pane-train">
+  <div class="grid2">
+    <!-- Note class selector -->
+    <div class="card">
+      <div class="card-kicker">Step 1 — Select Denomination</div>
+      <div class="card-title">Currency Classes</div>
+      <div class="card-sub">Select a denomination, then collect training samples via webcam or upload.</div>
+      <div class="note-grid" id="noteGrid"></div>
+      <div class="sample-bar">
+        <span>Selected: <strong id="selNote">—</strong></span>
+        <span id="selCount" style="font-family:var(--mono);">0 samples</span>
+      </div>
+    </div>
+
+    <!-- Sample collection -->
+    <div class="card">
+      <div class="card-kicker">Step 2 — Collect Samples</div>
+      <div class="card-title">Record Training Images</div>
+      <div class="card-sub">Hold the note flat, well-lit. Capture multiple angles & distances for best accuracy.</div>
+      <div class="cam-wrap" id="trainCamWrap">
+        <video id="trainVideo" autoplay playsinline muted style="display:none;"></video>
+        <canvas id="trainCanvas"></canvas>
+        <div class="cam-ph" id="trainPh"><span>📷</span><span>Start camera to collect</span></div>
+        <div class="cam-live-badge" id="trainBadge"><span class="dot"></span> OFF</div>
+      </div>
+      <div class="btn-row" style="margin-top:10px;">
+        <button class="btn btn-ghost" id="btnTrainCam" onclick="toggleTrainCam()">▶ Camera</button>
+        <button class="btn btn-gold" id="btnCapture" onclick="captureTrainSamples()" disabled>📸 Capture 20</button>
+      </div>
+      <!-- Upload for training -->
+      <div class="drop-zone" id="trainDrop" onclick="document.getElementById('trainFile').click()" style="margin-top:10px;">
+        <span>📂</span>
+        <p>Or upload note photos for training</p>
+        <input type="file" id="trainFile" accept="image/*" multiple style="display:none;" onchange="handleTrainUpload(event)"/>
+      </div>
+    </div>
+  </div>
+
+  <!-- Train controls -->
+  <div class="card" style="margin-top:20px;">
+    <div class="card-kicker">Step 3 — Train & Deploy</div>
+    <div class="card-title">Train Currency Classifier</div>
+    <div class="card-sub">MobileNet feature extraction → 2-layer dense head. WebGL-accelerated. Training is fast — 30 epochs takes ~10 seconds.</div>
+    <div class="stat-row">
+      <div class="stat-card"><div class="stat-val" id="stClasses">0</div><div class="stat-lbl">Denominations</div></div>
+      <div class="stat-card"><div class="stat-val" id="stSamples">0</div><div class="stat-lbl">Total Samples</div></div>
+      <div class="stat-card"><div class="stat-val" id="stAcc">—</div><div class="stat-lbl">Last Accuracy</div></div>
+      <div class="stat-card"><div class="stat-val" id="stLoss">—</div><div class="stat-lbl">Last Loss</div></div>
+    </div>
+    <div class="prog-wrap" id="trainProg"><div class="prog-bar" id="trainBar"></div></div>
+    <div class="train-log" id="trainLog">Awaiting training…</div>
+    <div class="btn-row">
+      <button class="btn btn-gold" id="btnTrain" onclick="trainModel()" disabled>🧠 Train Model</button>
+      <button class="btn btn-green" id="btnSave" onclick="saveModel()" disabled>💾 Save</button>
+      <button class="btn btn-ghost" onclick="loadModel()">📂 Load Saved</button>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-ghost btn-sm" style="width:auto;" onclick="clearAllSamples()">🗑 Clear Samples</button>
+      <button class="btn btn-ghost btn-sm" style="width:auto;margin-left:4px;" id="btnExportCSV" onclick="exportCSV()" disabled>⬇ Export CSV</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════ WALLET ════ -->
+<div class="pane" id="pane-wallet">
+  <div class="grid2">
+    <div>
+      <div class="wallet-display">
+        <div class="wallet-label">Total in Wallet</div>
+        <div class="wallet-total">₹<span id="walletTotal">0</span></div>
+        <div class="wallet-breakdown" id="walletBreakdown"></div>
+      </div>
+      <div class="card" style="margin-top:16px;">
+        <div class="card-kicker">Manual Add</div>
+        <div class="card-title">Add Note</div>
+        <div class="card-sub">Manually add a denomination to wallet.</div>
+        <div class="note-grid" id="walletNoteGrid"></div>
+        <button class="btn btn-ghost" onclick="clearWallet()" style="margin-top:8px;color:var(--muted);border-color:var(--border);">🗑 Clear Wallet</button>
+        <button class="btn btn-ghost btn-sm" style="width:auto;margin-top:8px;" onclick="exportWalletCSV()">⬇ Export CSV</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-kicker">Transaction History</div>
+      <div class="card-title">Added Notes</div>
+      <div class="card-sub">Every note added (from detection or manual) appears here.</div>
+      <div class="wallet-history" id="walletHistory">
+        <div style="font-family:var(--mono);font-size:11px;color:var(--muted);padding:20px;text-align:center;font-style:italic;">No notes added yet</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════ REFERENCE ════ -->
+<div class="pane" id="pane-reference">
+  <div class="card">
+    <div class="card-kicker">Indian Rupee</div>
+    <div class="card-title">Currency Note Reference</div>
+    <div class="card-sub">Visual characteristics of each denomination — use these to guide training sample collection.</div>
+    <div class="note-ref-grid" id="noteRefGrid"></div>
+  </div>
+</div>
+
+<!-- ════ SETTINGS ════ -->
+<div class="pane" id="pane-settings">
+  <div class="grid2">
+    <div class="card">
+      <div class="card-title" style="margin-bottom:16px;">Model Settings</div>
+      <div class="setting-row" style="padding-top:0;">
+        <div><div class="s-lbl">Epochs</div><div class="s-sub">More = higher accuracy, slower train</div></div>
+        <select class="sel" id="selEpochs"><option value="20">20</option><option value="40" selected>40</option><option value="60">60</option><option value="100">100</option></select>
+      </div>
+      <div class="setting-row">
+        <div><div class="s-lbl">Learning Rate</div><div class="s-sub">Adam optimizer</div></div>
+        <select class="sel" id="selLR"><option value="0.0001">0.0001</option><option value="0.001" selected>0.001</option><option value="0.01">0.01</option></select>
+      </div>
+      <div class="setting-row">
+        <div><div class="s-lbl">Hidden Units</div><div class="s-sub">Dense layer width</div></div>
+        <select class="sel" id="selUnits"><option value="64">64</option><option value="128" selected>128</option><option value="256">256</option></select>
+      </div>
+      <div class="setting-row">
+        <div><div class="s-lbl">Data Augmentation</div><div class="s-sub">Add noise to feature vectors ×3</div></div>
+        <label class="tog"><input type="checkbox" id="togAug" checked/><span class="tog-track"></span></label>
+      </div>
+      <div class="setting-row">
+        <div><div class="s-lbl">Confidence Threshold</div><div class="s-sub">Min % to accept result</div></div>
+        <select class="sel" id="selThresh"><option value="0.5">50%</option><option value="0.65" selected>65%</option><option value="0.8">80%</option></select>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title" style="margin-bottom:16px;">Detection Settings</div>
+      <div class="setting-row" style="padding-top:0;">
+        <div><div class="s-lbl">Live Classify Speed</div><div class="s-sub">Frames per second</div></div>
+        <select class="sel" id="selFPS"><option value="2000">0.5 fps</option><option value="1000">1 fps</option><option value="500" selected>2 fps</option></select>
+      </div>
+      <div class="setting-row">
+        <div><div class="s-lbl">Voice Language</div><div class="s-sub">TTS language for speaking</div></div>
+        <select class="sel" id="selLang">
+          <option value="en-IN">English (India)</option>
+          <option value="hi-IN">Hindi</option>
+          <option value="mr-IN">Marathi</option>
+        </select>
+      </div>
+      <div class="setting-row">
+        <div><div class="s-lbl">Auto-Add to Wallet</div><div class="s-sub">Auto-add detected notes to wallet</div></div>
+        <label class="tog"><input type="checkbox" id="togAutoWallet"/><span class="tog-track"></span></label>
+      </div>
+      <div class="setting-row">
+        <div><div class="s-lbl">Storage</div><div class="s-sub">Saved samples & model</div></div>
+        <button class="btn btn-ghost btn-sm" onclick="fullReset()">Reset All</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+</main>
+<div id="toast"></div>
+
+<script>
+"use strict";
+
+// ── NOTE DATABASE ──────────────────────────────────
+const NOTES = [
+  { id:'n10',   denom:10,   label:'Ten Rupees',      color:'#6bcef2', motif:'Konark Sun Temple',    fact:'Chocolate/pink coloured. Features Konark Sun Temple on reverse.' },
+  { id:'n20',   denom:20,   label:'Twenty Rupees',   color:'#e07b30', motif:'Ellora Caves',          fact:'Greenish-yellow. Features Ellora Caves on the reverse side.' },
+  { id:'n50',   denom:50,   label:'Fifty Rupees',    color:'#b388e8', motif:'Hampi with Chariot',    fact:'Fluorescent blue. Hampi with Chariot visible on the reverse.' },
+  { id:'n100',  denom:100,  label:'Hundred Rupees',  color:'#5fbf8a', motif:'Rani ki Vav',           fact:'Lavender. Features Rani ki Vav (stepwell) from Gujarat.' },
+  { id:'n200',  denom:200,  label:'Two Hundred',     color:'#f7c84b', motif:'Sanchi Stupa',          fact:'Bright yellow. Sanchi Stupa from Madhya Pradesh on reverse.' },
+  { id:'n500',  denom:500,  label:'Five Hundred',    color:'#e8806a', motif:'Red Fort',              fact:'Stone grey. Features the iconic Red Fort in Delhi.' },
+  { id:'n2000', denom:2000, label:'Two Thousand',    color:'#f4a0c0', motif:'Mangalyaan',            fact:'Magenta/pink. Features Mangalyaan (Mars Orbiter Mission).' },
+];
+
+// Voice labels per language
+const VOICE_LABELS = {
+  'en-IN': d => `${d} Rupees`,
+  'hi-IN': d => {
+    const m = {10:'दस रुपये',20:'बीस रुपये',50:'पचास रुपये',100:'एक सौ रुपये',200:'दो सौ रुपये',500:'पाँच सौ रुपये',2000:'दो हजार रुपये'};
+    return m[d]||`${d} रुपये`;
+  },
+  'mr-IN': d => {
+    const m = {10:'दहा रुपये',20:'वीस रुपये',50:'पन्नास रुपये',100:'शंभर रुपये',200:'दोनशे रुपये',500:'पाचशे रुपये',2000:'दोन हजार रुपये'};
+    return m[d]||`${d} रुपये`;
+  },
+};
+
+// ── STATE ─────────────────────────────────────────
+const samples = {}; // noteId → [float32 vectors]
+NOTES.forEach(n => samples[n.id]=[]);
+
+let baseModel   = null;
+let trainedModel= null;
+let isTrained   = false;
+let selectedNote= null;
+
+// camera
+let detectStream= null, detectCamActive=false, liveInterval=null;
+let trainStream = null, trainCamActive=false;
+let lastTrainCanvas = null;
+
+// wallet
+let wallet      = JSON.parse(localStorage.getItem('rl_wallet')||'[]');
+let walletTotal = wallet.reduce((s,e)=>s+e.denom,0);
+
+// settings / state flags
+let autoSpeak   = true;
+let langMode    = 'en-IN';
+let lastResult  = null;
+
+// ── UI HELPERS ────────────────────────────────────
+function switchTab(name){
+  const names=['detect','train','wallet','reference','settings'];
+  document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active',names[i]===name));
+  document.querySelectorAll('.pane').forEach(p=>p.classList.toggle('active',p.id==='pane-'+name));
+}
+
+function toast(msg){
+  const t=document.getElementById('toast');
+  t.textContent=msg;t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'),2600);
+}
+
+function setChip(id,state,txt){
+  const el=document.getElementById(id);
+  el.className='badge badge-'+state;
+  el.querySelector('.dot').className='dot'+(state==='busy'?' blink':'');
+  document.getElementById(id.replace('Chip','Txt')).textContent=txt;
+}
+
+// ── RENDER NOTE GRIDS ─────────────────────────────
+function renderNoteGrid(containerId, onclick){
+  const g=document.getElementById(containerId);
+  g.innerHTML='';
+  NOTES.forEach(n=>{
+    const count=samples[n.id]?.length||0;
+    const el=document.createElement('div');
+    el.className=`note-tile note-${n.denom}`+(count>0?' has-data':'')+(selectedNote===n.id?' selected':'');
+    el.id='nt_'+n.id;
+    el.innerHTML=`<div class="nt-denom">₹${n.denom}</div><div class="nt-label">${n.label.split(' ')[0]}</div><div class="nt-count">${count}</div>`;
+    el.onclick=()=>onclick(n.id);
+    g.appendChild(el);
+  });
+}
+
+function selectNote(id){
+  selectedNote=id;
+  document.querySelectorAll('.note-tile').forEach(e=>e.classList.remove('selected'));
+  ['nt_'+id].forEach(sel=>{
+    const el=document.getElementById(sel);
+    if(el) el.classList.add('selected');
+  });
+  const n=NOTES.find(x=>x.id===id);
+  document.getElementById('selNote').textContent=`₹${n.denom} — ${n.label}`;
+  document.getElementById('selCount').textContent=(samples[id]?.length||0)+' samples';
+  document.getElementById('btnCapture').disabled=!trainCamActive;
+  refreshStats();
+}
+
+function renderWalletNoteGrid(){
+  renderNoteGrid('walletNoteGrid', id=>{
+    const n=NOTES.find(x=>x.id===id);
+    addNoteToWallet(n.denom);
+  });
+}
+
+// ── REFERENCE TAB ─────────────────────────────────
+function renderReference(){
+  const g=document.getElementById('noteRefGrid');
+  g.innerHTML='';
+  NOTES.forEach(n=>{
+    g.innerHTML+=`<div class="note-ref-card">
+      <div class="nrc-denom" style="color:${n.color}">₹${n.denom}</div>
+      <div class="nrc-name"><span class="nrc-color" style="background:${n.color}"></span>${n.label}</div>
+      <div style="font-family:var(--mono);font-size:8px;color:var(--gold);margin-top:4px;">${n.motif}</div>
+      <div class="nrc-fact">${n.fact}</div>
+    </div>`;
+  });
+}
+
+// ── MOBILENET LOAD ────────────────────────────────
+async function initMobileNet(){
+  setChip('mnChip','busy','Loading…');
+  try{
+    baseModel = await mobilenet.load({version:2, alpha:.5});
+    setChip('mnChip','ok','MobileNet ✓');
+    toast('MobileNet loaded ✓');
+  }catch(e){
+    setChip('mnChip','idle','Load failed');
+    toast('MobileNet load failed: '+e.message);
+  }
+}
+
+// ── FEATURE EXTRACTION ────────────────────────────
+function extractFeature(imgEl){
+  return tf.tidy(()=>{
+    const t = tf.browser.fromPixels(imgEl)
+      .resizeBilinear([224,224])
+      .expandDims(0).toFloat().div(127.5).sub(1);
+    return baseModel.infer(t,true).squeeze();
+  });
+}
+
+// ── TRAIN CAMERA ─────────────────────────────────
+async function toggleTrainCam(){
+  if(trainCamActive){ stopTrainCam(); return; }
+  try{
+    trainStream=await navigator.mediaDevices.getUserMedia({video:{width:640,height:480,facingMode:'environment'}});
+    const v=document.getElementById('trainVideo');
+    v.srcObject=trainStream;v.style.display='none';
+    await v.play();
+    document.getElementById('trainPh').style.display='none';
+    document.getElementById('trainBadge').className='cam-live-badge live';
+    document.getElementById('trainBadge').innerHTML='<span class="dot blink"></span> LIVE';
+    document.getElementById('btnTrainCam').textContent='■ Stop';
+    if(selectedNote) document.getElementById('btnCapture').disabled=false;
+    trainCamActive=true;
+    // draw video to canvas continuously
+    const canvas=document.getElementById('trainCanvas');
+    const ctx=canvas.getContext('2d');
+    const draw=()=>{
+      if(!trainCamActive) return;
+      const v2=document.getElementById('trainVideo');
+      if(v2.videoWidth){
+        canvas.width=v2.videoWidth;canvas.height=v2.videoHeight;
+        ctx.save();ctx.translate(canvas.width,0);ctx.scale(-1,1);
+        ctx.drawImage(v2,0,0);ctx.restore();
+      }
+      requestAnimationFrame(draw);
+    };
+    draw();
+    lastTrainCanvas=canvas;
+  }catch(e){ toast('Camera error: '+e.message); }
+}
+
+function stopTrainCam(){
+  trainStream?.getTracks().forEach(t=>t.stop());
+  trainCamActive=false;
+  document.getElementById('trainBadge').className='cam-live-badge';
+  document.getElementById('trainBadge').innerHTML='<span class="dot"></span> OFF';
+  document.getElementById('trainPh').style.display='flex';
+  document.getElementById('btnTrainCam').textContent='▶ Camera';
+  document.getElementById('btnCapture').disabled=true;
+}
+
+// ── CAPTURE TRAIN SAMPLES ─────────────────────────
+async function captureTrainSamples(){
+  if(!selectedNote||!trainCamActive||!baseModel){ toast('Select denomination & start camera'); return; }
+  const N=20; let captured=0;
+  document.getElementById('btnCapture').disabled=true;
+  const canvas=lastTrainCanvas;
+  for(let i=0;i<N;i++){
+    await new Promise(r=>setTimeout(r,120));
+    const feat=extractFeature(canvas);
+    const vec=feat.arraySync();feat.dispose();
+    samples[selectedNote].push(vec);
+    if(document.getElementById('togAug').checked){
+      samples[selectedNote].push(vec.map(v=>v+(Math.random()-.5)*.04));
+      samples[selectedNote].push(vec.map(v=>v+(Math.random()-.5)*.04));
+    }
+    captured++;
+  }
+  document.getElementById('btnCapture').disabled=false;
+  document.getElementById('selCount').textContent=samples[selectedNote].length+' samples';
+  renderNoteGrid('noteGrid',selectNote);
+  refreshStats();
+  saveSamples();
+  toast(`Captured ${captured} samples for ₹${NOTES.find(x=>x.id===selectedNote).denom} ✓`);
+  checkTrainReady();
+}
+
+// ── TRAIN UPLOAD ──────────────────────────────────
+async function handleTrainUpload(e){
+  if(!selectedNote||!baseModel){ toast('Select denomination first'); return; }
+  const files=Array.from(e.target.files);
+  for(const f of files){
+    const url=URL.createObjectURL(f);
+    const img=new Image();
+    await new Promise(res=>{ img.onload=res; img.src=url; });
+    const feat=extractFeature(img);
+    const vec=feat.arraySync();feat.dispose();
+    samples[selectedNote].push(vec);
+    if(document.getElementById('togAug').checked){
+      samples[selectedNote].push(vec.map(v=>v+(Math.random()-.5)*.04));
+    }
+    URL.revokeObjectURL(url);
+  }
+  document.getElementById('selCount').textContent=samples[selectedNote].length+' samples';
+  renderNoteGrid('noteGrid',selectNote);
+  refreshStats();saveSamples();
+  toast(`Added ${files.length} image(s) ✓`);
+  checkTrainReady();
+}
+
+// ── STATS ─────────────────────────────────────────
+function refreshStats(){
+  const cls=NOTES.filter(n=>samples[n.id].length>0).length;
+  const tot=NOTES.reduce((s,n)=>s+samples[n.id].length,0);
+  document.getElementById('stClasses').textContent=cls;
+  document.getElementById('stSamples').textContent=tot;
+  document.getElementById('btnExportCSV').disabled=tot===0;
+}
+
+function checkTrainReady(){
+  const cls=NOTES.filter(n=>samples[n.id].length>0).length;
+  document.getElementById('btnTrain').disabled=!(baseModel&&cls>=2);
+}
+
+// ── TRAIN MODEL ───────────────────────────────────
+async function trainModel(){
+  const active=NOTES.filter(n=>samples[n.id].length>0);
+  if(active.length<2){ toast('Need ≥2 denominations with samples'); return; }
+  document.getElementById('btnTrain').disabled=true;
+  document.getElementById('trainProg').style.display='block';
+  setChip('mdChip','busy','Training…');
+
+  const xs=[],ys=[];
+  active.forEach((n,idx)=>{
+    samples[n.id].forEach(vec=>{ xs.push(vec); ys.push(idx); });
+  });
+
+  const xT=tf.tensor2d(xs);
+  const yT=tf.oneHot(tf.tensor1d(ys,'int32'),active.length);
+
+  if(trainedModel){ trainedModel.dispose(); trainedModel=null; }
+
+  const units=parseInt(document.getElementById('selUnits').value);
+  const epochs=parseInt(document.getElementById('selEpochs').value);
+  const lr=parseFloat(document.getElementById('selLR').value);
+  const dim=xs[0].length;
+
+  trainedModel=tf.sequential();
+  trainedModel.add(tf.layers.dense({inputShape:[dim],units,activation:'relu',kernelInitializer:'glorotUniform'}));
+  trainedModel.add(tf.layers.batchNormalization());
+  trainedModel.add(tf.layers.dropout({rate:.3}));
+  trainedModel.add(tf.layers.dense({units:Math.floor(units/2),activation:'relu'}));
+  trainedModel.add(tf.layers.dropout({rate:.2}));
+  trainedModel.add(tf.layers.dense({units:active.length,activation:'softmax'}));
+  trainedModel.compile({optimizer:tf.train.adam(lr),loss:'categoricalCrossentropy',metrics:['accuracy']});
+
+  await trainedModel.fit(xT,yT,{
+    epochs,batchSize:Math.min(32,xs.length),shuffle:true,
+    validationSplit:xs.length>=20?.15:0,
+    callbacks:{onEpochEnd:(epoch,logs)=>{
+      const pct=Math.round(((epoch+1)/epochs)*100);
+      document.getElementById('trainBar').style.width=pct+'%';
+      const acc=(logs.acc||logs.accuracy||0)*100;
+      document.getElementById('stAcc').textContent=acc.toFixed(0)+'%';
+      document.getElementById('stLoss').textContent=(logs.loss||0).toFixed(3);
+      document.getElementById('trainLog').textContent=`Epoch ${epoch+1}/${epochs} · loss ${(logs.loss||0).toFixed(4)} · acc ${acc.toFixed(1)}%`;
+    }}
+  });
+
+  xT.dispose();yT.dispose();
+  trainedModel._noteIds=active.map(n=>n.id);
+  isTrained=true;
+  document.getElementById('btnTrain').disabled=false;
+  document.getElementById('btnSave').disabled=false;
+  setChip('mdChip','ok',`Trained · ₹${active.map(n=>n.denom).join('/')}`);
+  toast('Training complete 🎉');
+}
+
+// ── SAVE / LOAD ───────────────────────────────────
+async function saveModel(){
+  if(!trainedModel) return;
+  await trainedModel.save('indexeddb://rupeelens-v1');
+  localStorage.setItem('rl_noteIds',JSON.stringify(trainedModel._noteIds));
+  toast('Model saved 💾');
+}
+
+async function loadModel(){
+  try{
+    trainedModel=await tf.loadLayersModel('indexeddb://rupeelens-v1');
+    const ids=JSON.parse(localStorage.getItem('rl_noteIds')||'[]');
+    trainedModel._noteIds=ids;
+    isTrained=true;
+    document.getElementById('btnSave').disabled=false;
+    setChip('mdChip','ok',`Loaded · ${ids.length} notes`);
+    toast('Model loaded 📂');
+  }catch{ toast('No saved model — train first'); }
+}
+
+// ── DETECT CAMERA ─────────────────────────────────
+async function toggleDetectCam(){
+  if(detectCamActive){ stopDetectCam(); return; }
+  try{
+    detectStream=await navigator.mediaDevices.getUserMedia({video:{width:640,height:480,facingMode:'environment'}});
+    const v=document.getElementById('detectVideo');
+    v.srcObject=detectStream;v.style.display='none';
+    await v.play();
+    document.getElementById('detectPh').style.display='none';
+    document.getElementById('detectBadge').className='cam-live-badge live';
+    document.getElementById('detectBadge').innerHTML='<span class="dot blink"></span> LIVE';
+    document.getElementById('btnDetectCam').textContent='■ Stop';
+    document.getElementById('btnSnap').disabled=!isTrained;
+    document.getElementById('btnLive').disabled=!isTrained;
+    detectCamActive=true;
+    const canvas=document.getElementById('detectCanvas');
+    const ctx=canvas.getContext('2d');
+    const draw=()=>{
+      if(!detectCamActive) return;
+      const v2=document.getElementById('detectVideo');
+      if(v2.videoWidth){
+        canvas.width=v2.videoWidth;canvas.height=v2.videoHeight;
+        ctx.save();ctx.translate(canvas.width,0);ctx.scale(-1,1);
+        ctx.drawImage(v2,0,0);ctx.restore();
+      }
+      requestAnimationFrame(draw);
+    };
+    draw();
+  }catch(e){ toast('Camera error: '+e.message); }
+}
+
+function stopDetectCam(){
+  clearInterval(liveInterval);liveInterval=null;
+  detectStream?.getTracks().forEach(t=>t.stop());
+  detectCamActive=false;
+  document.getElementById('detectBadge').className='cam-live-badge';
+  document.getElementById('detectBadge').innerHTML='<span class="dot"></span> OFF';
+  document.getElementById('detectPh').style.display='flex';
+  document.getElementById('btnDetectCam').textContent='▶ Camera';
+  document.getElementById('btnSnap').disabled=true;
+  document.getElementById('btnLive').disabled=true;
+  document.getElementById('liveBadge').className='live-badge';
+}
+
+// ── SNAP & PREDICT ────────────────────────────────
+function snapPredict(){
+  if(!isTrained||!detectCamActive){ toast('Start camera and load a model'); return; }
+  const canvas=document.getElementById('detectCanvas');
+  runPredict(canvas);
+}
+
+async function handleDetectUpload(e){
+  const file=e.target.files[0]; if(!file) return;
+  const url=URL.createObjectURL(file);
+  const prev=document.getElementById('detectPrev');
+  prev.src=url;prev.style.display='block';
+  prev.onload=()=>{
+    if(isTrained) runPredict(prev);
+    else toast('Load or train a model first');
+    URL.revokeObjectURL(url);
+  };
+}
+
+async function runPredict(imgEl){
+  if(!isTrained||!trainedModel||!baseModel){ toast('Model not ready'); return; }
+  const feat=extractFeature(imgEl);
+  const input=feat.expandDims(0);
+  const pred=trainedModel.predict(input);
+  const probs=await pred.data();
+  feat.dispose();input.dispose();pred.dispose();
+
+  const noteIds=trainedModel._noteIds||[];
+  const results=noteIds.map((id,i)=>({
+    note:NOTES.find(n=>n.id===id)||{id,denom:0,label:id,color:'#fff'},
+    prob:probs[i]
+  })).sort((a,b)=>b.prob-a.prob);
+
+  const thresh=parseFloat(document.getElementById('selThresh').value);
+  lastResult=results[0];
+
+  if(results[0].prob>=thresh){
+    showResult(results[0],results.slice(0,Math.min(3,results.length)));
+    if(autoSpeak) speakResult();
+    if(document.getElementById('togAutoWallet').checked) addToWallet();
+  } else {
+    toast(`Low confidence (${Math.round(results[0].prob*100)}%) — try better lighting`);
+  }
+}
+
+function showResult(top, topN){
+  document.getElementById('resultPh').style.display='none';
+  const card=document.getElementById('resultCard');
+  card.className='result-card show';
+  document.getElementById('rDenom').textContent=`₹${top.note.denom}`;
+  document.getElementById('rDenom').style.color=top.note.color;
+  document.getElementById('rName').textContent=top.note.label;
+  document.getElementById('rConf').textContent=`Confidence: ${Math.round(top.prob*100)}%`;
+  const bars=document.getElementById('confBars');
+  bars.innerHTML='';
+  topN.forEach(r=>{
+    const pct=Math.round(r.prob*100);
+    bars.innerHTML+=`<div class="conf-item">
+      <span class="ci-label" style="color:${r.note.color}">₹${r.note.denom}</span>
+      <div class="ci-bar-bg"><div class="ci-bar" style="width:${pct}%;background:${r.note.color}"></div></div>
+      <span class="ci-pct">${pct}%</span>
+    </div>`;
+  });
+}
+
+// ── LIVE CLASSIFY ─────────────────────────────────
+function toggleLive(){
+  if(liveInterval){
+    clearInterval(liveInterval);liveInterval=null;
+    document.getElementById('btnLive').textContent='🔴 Live Classify';
+    document.getElementById('liveBadge').className='live-badge';
+    toast('Live classify stopped');
+  } else {
+    const fps=parseInt(document.getElementById('selFPS').value);
+    document.getElementById('btnLive').textContent='⏹ Stop Live';
+    document.getElementById('liveBadge').className='live-badge show';
+    liveInterval=setInterval(()=>{
+      const canvas=document.getElementById('detectCanvas');
+      runPredict(canvas);
+    },fps);
+    toast('Live classify started');
+  }
+}
+
+// ── SPEECH ────────────────────────────────────────
+function speakResult(){
+  if(!lastResult){ toast('Nothing to speak'); return; }
+  const lang=document.getElementById('selLang').value;
+  const text=VOICE_LABELS[lang]?.(lastResult.note.denom)||`${lastResult.note.denom} Rupees`;
+  const utt=new SpeechSynthesisUtterance(text);
+  utt.lang=lang;utt.rate=.9;
+  const btn=document.getElementById('btnVoice');
+  btn.classList.add('speaking');
+  utt.onend=()=>btn.classList.remove('speaking');
+  speechSynthesis.cancel();
+  speechSynthesis.speak(utt);
+}
+
+function toggleAutoSpeak(btn){
+  autoSpeak=!autoSpeak;
+  btn.textContent=autoSpeak?'Auto-Speak ON':'Auto-Speak OFF';
+  btn.classList.toggle('active',autoSpeak);
+}
+
+function toggleLang(btn){
+  const lang=document.getElementById('selLang').value;
+  const next=lang==='hi-IN'?'en-IN':'hi-IN';
+  document.getElementById('selLang').value=next;
+  btn.textContent=next==='hi-IN'?'हिंदी ✓':'हिंदी';
+  toast('Language: '+next);
+}
+
+function toggleMarathi(btn){
+  const lang=document.getElementById('selLang').value;
+  const next=lang==='mr-IN'?'en-IN':'mr-IN';
+  document.getElementById('selLang').value=next;
+  btn.textContent=next==='mr-IN'?'मराठी ✓':'मराठी';
+  toast('Language: '+next);
+}
+
+// ── WALLET ────────────────────────────────────────
+function addToWallet(){
+  if(!lastResult) return;
+  addNoteToWallet(lastResult.note.denom);
+}
+
+function addNoteToWallet(denom){
+  const time=new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+  wallet.unshift({denom,time,date:new Date().toDateString()});
+  walletTotal+=denom;
+  saveWallet();
+  renderWallet();
+  toast(`₹${denom} added to wallet`);
+}
+
+function renderWallet(){
+  document.getElementById('walletTotal').textContent=walletTotal.toLocaleString('en-IN');
+  // breakdown
+  const counts={};
+  NOTES.forEach(n=>counts[n.id]=0);
+  wallet.forEach(e=>{ const n=NOTES.find(x=>x.denom===e.denom); if(n) counts[n.id]++; });
+  const bd=document.getElementById('walletBreakdown');
+  bd.innerHTML='';
+  NOTES.forEach(n=>{
+    if(counts[n.id]>0){
+      bd.innerHTML+=`<div class="wb-item">
+        <div class="wbi-denom" style="color:${n.color}">₹${n.denom}</div>
+        <div class="wbi-count">×${counts[n.id]}</div>
+      </div>`;
+    }
+  });
+  // history
+  const hist=document.getElementById('walletHistory');
+  if(!wallet.length){
+    hist.innerHTML='<div style="font-family:var(--mono);font-size:11px;color:var(--muted);padding:20px;text-align:center;font-style:italic;">No notes added yet</div>';
+    return;
+  }
+  hist.innerHTML='';
+  const today=new Date().toDateString();
+  wallet.forEach(e=>{
+    const n=NOTES.find(x=>x.denom===e.denom)||{color:'#fff'};
+    hist.innerHTML+=`<div class="wh-entry">
+      <span class="whe-denom" style="color:${n.color}">₹${e.denom}</span>
+      <span style="color:var(--muted);font-family:var(--mono);font-size:9px;">${e.date===today?e.time:e.date+' '+e.time}</span>
+    </div>`;
+  });
+  renderWalletNoteGrid();
+}
+
+function clearWallet(){
+  if(!confirm('Clear wallet?')) return;
+  wallet=[];walletTotal=0;
+  saveWallet();renderWallet();
+  toast('Wallet cleared');
+}
+
+function saveWallet(){
+  localStorage.setItem('rl_wallet',JSON.stringify(wallet.slice(0,200)));
+}
+
+function exportWalletCSV(){
+  const rows=['denomination,time,date'];
+  wallet.forEach(e=>rows.push(`${e.denom},${e.time},${e.date}`));
+  const blob=new Blob([rows.join('\n')],{type:'text/csv'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+  a.download='rupeelens_wallet.csv';a.click();
+  toast('Wallet exported ✓');
+}
+
+// ── STORAGE ───────────────────────────────────────
+function saveSamples(){
+  const data={};
+  NOTES.forEach(n=>{ if(samples[n.id].length>0) data[n.id]=samples[n.id]; });
+  try{ localStorage.setItem('rl_samples',JSON.stringify(data)); }catch{}
+}
+
+function loadSamples(){
+  try{
+    const data=JSON.parse(localStorage.getItem('rl_samples')||'{}');
+    Object.entries(data).forEach(([id,arr])=>{ if(samples[id]!==undefined) samples[id]=arr; });
+  }catch{}
+}
+
+function exportCSV(){
+  const active=NOTES.filter(n=>samples[n.id].length>0);
+  const rows=['denomination,'+Array.from({length:samples[active[0].id][0]?.length||0},(_,i)=>'v'+i).join(',')];
+  active.forEach(n=>{
+    samples[n.id].forEach(vec=>rows.push(`${n.denom},${vec.join(',')}`));
+  });
+  const blob=new Blob([rows.join('\n')],{type:'text/csv'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+  a.download='rupeelens_samples.csv';a.click();
+  toast('CSV exported ✓');
+}
+
+function clearAllSamples(){
+  if(!confirm('Clear all samples?')) return;
+  NOTES.forEach(n=>samples[n.id]=[]);
+  localStorage.removeItem('rl_samples');
+  renderNoteGrid('noteGrid',selectNote);
+  refreshStats();checkTrainReady();
+  toast('Samples cleared');
+}
+
+async function fullReset(){
+  if(!confirm('Reset everything?')) return;
+  clearAllSamples();
+  try{ await tf.io.removeModel('indexeddb://rupeelens-v1'); }catch{}
+  localStorage.removeItem('rl_noteIds');
+  localStorage.removeItem('rl_wallet');
+  wallet=[];walletTotal=0;
+  trainedModel=null;isTrained=false;
+  setChip('mdChip','idle','No Model');
+  renderWallet();toast('Full reset done');
+}
+
+// ── DRAG & DROP (detect) ──────────────────────────
+(()=>{
+  const dz=document.getElementById('detectDrop');
+  ['dragover','dragenter'].forEach(e=>dz.addEventListener(e,ev=>{ev.preventDefault();dz.classList.add('over');}));
+  ['dragleave','drop'].forEach(e=>dz.addEventListener(e,ev=>{ev.preventDefault();dz.classList.remove('over');}));
+  dz.addEventListener('drop',ev=>{
+    const f=ev.dataTransfer.files[0];
+    if(f&&f.type.startsWith('image/')){
+      const url=URL.createObjectURL(f);
+      const prev=document.getElementById('detectPrev');
+      prev.src=url;prev.style.display='block';
+      prev.onload=()=>{ if(isTrained) runPredict(prev); URL.revokeObjectURL(url); };
+    }
+  });
+})();
+
+// ── BOOT ──────────────────────────────────────────
+(async()=>{
+  loadSamples();
+  renderNoteGrid('noteGrid',selectNote);
+  renderWalletNoteGrid();
+  renderReference();
+  refreshStats();
+  renderWallet();
+
+  await initMobileNet();
+  checkTrainReady();
+
+  // auto-load model
+  try{
+    trainedModel=await tf.loadLayersModel('indexeddb://rupeelens-v1');
+    const ids=JSON.parse(localStorage.getItem('rl_noteIds')||'[]');
+    trainedModel._noteIds=ids;
+    isTrained=true;
+    document.getElementById('btnSave').disabled=false;
+    setChip('mdChip','ok',`Auto-loaded · ${ids.length} notes`);
+    toast('Model auto-loaded 🔄');
+  }catch{
+    setChip('mdChip','idle','No Model');
+  }
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,856 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MNIST Digit Recognition — CNN · TensorFlow.js</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;800&display=swap" rel="stylesheet" />
+    <style>
+      :root {
+        --bg: #080c14;
+        --surface: #0f1624;
+        --surface2: #161e30;
+        --border: rgba(99, 179, 237, 0.15);
+        --accent: #63b3ed;
+        --accent2: #9f7aea;
+        --accent3: #68d391;
+        --danger: #fc8181;
+        --text: #e2e8f0;
+        --text-muted: #718096;
+        --mono: 'Space Mono', monospace;
+        --sans: 'Syne', sans-serif;
+      }
+
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+
+      body {
+        font-family: var(--sans);
+        background: var(--bg);
+        color: var(--text);
+        min-height: 100vh;
+        padding: 24px 16px 48px;
+        background-image:
+          radial-gradient(ellipse 80% 60% at 50% -10%, rgba(99,179,237,0.08) 0%, transparent 60%),
+          repeating-linear-gradient(0deg, transparent, transparent 39px, rgba(99,179,237,0.04) 39px, rgba(99,179,237,0.04) 40px),
+          repeating-linear-gradient(90deg, transparent, transparent 39px, rgba(99,179,237,0.04) 39px, rgba(99,179,237,0.04) 40px);
+      }
+
+      .page-wrap {
+        max-width: 960px;
+        margin: 0 auto;
+      }
+
+      /* HEADER */
+      header {
+        text-align: center;
+        padding: 48px 0 40px;
+        position: relative;
+      }
+
+      .chip {
+        display: inline-block;
+        font-family: var(--mono);
+        font-size: 11px;
+        letter-spacing: 0.15em;
+        text-transform: uppercase;
+        color: var(--accent);
+        border: 1px solid var(--accent);
+        padding: 4px 12px;
+        border-radius: 20px;
+        margin-bottom: 20px;
+        opacity: 0.85;
+      }
+
+      h1 {
+        font-size: clamp(2.4rem, 6vw, 4rem);
+        font-weight: 800;
+        line-height: 1;
+        letter-spacing: -0.03em;
+        background: linear-gradient(135deg, #e2e8f0 30%, var(--accent) 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        margin-bottom: 12px;
+      }
+
+      .subtitle {
+        font-family: var(--mono);
+        font-size: 13px;
+        color: var(--text-muted);
+        letter-spacing: 0.05em;
+      }
+
+      /* CARDS */
+      .card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 28px;
+        margin-bottom: 20px;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .card::before {
+        content: '';
+        position: absolute;
+        top: 0; left: 0; right: 0;
+        height: 1px;
+        background: linear-gradient(90deg, transparent, rgba(99,179,237,0.4), transparent);
+      }
+
+      .card-title {
+        font-family: var(--mono);
+        font-size: 11px;
+        letter-spacing: 0.2em;
+        text-transform: uppercase;
+        color: var(--accent);
+        margin-bottom: 20px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .card-title::after {
+        content: '';
+        flex: 1;
+        height: 1px;
+        background: var(--border);
+      }
+
+      /* STATUS */
+      #status {
+        font-family: var(--mono);
+        font-size: 13px;
+        color: var(--text-muted);
+        background: var(--surface2);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 14px 18px;
+        margin-bottom: 20px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-height: 48px;
+      }
+
+      #status::before {
+        content: '▸';
+        color: var(--accent);
+        flex-shrink: 0;
+      }
+
+      /* BUTTONS */
+      .btn-row {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 12px;
+        margin-bottom: 0;
+      }
+
+      button {
+        font-family: var(--mono);
+        font-size: 12px;
+        letter-spacing: 0.05em;
+        color: var(--text);
+        background: var(--surface2);
+        border: 1px solid var(--border);
+        padding: 13px 20px;
+        border-radius: 10px;
+        cursor: pointer;
+        transition: all 0.2s;
+        font-weight: 700;
+        text-transform: uppercase;
+      }
+
+      button:hover:not(:disabled) {
+        border-color: var(--accent);
+        color: var(--accent);
+        background: rgba(99,179,237,0.06);
+        transform: translateY(-1px);
+      }
+
+      button:disabled {
+        opacity: 0.35;
+        cursor: not-allowed;
+      }
+
+      #trainBtn:hover:not(:disabled) { border-color: var(--accent2); color: var(--accent2); background: rgba(159,122,234,0.06); }
+      #evaluateBtn:hover:not(:disabled) { border-color: var(--accent3); color: var(--accent3); background: rgba(104,211,145,0.06); }
+      #clearBtn:hover:not(:disabled) { border-color: var(--danger); color: var(--danger); background: rgba(252,129,129,0.06); }
+      #predictBtn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+
+      /* PROGRESS */
+      #progressContainer {
+        display: none;
+        margin-top: 20px;
+        background: var(--surface2);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 18px;
+      }
+
+      .progress-track {
+        width: 100%;
+        height: 6px;
+        background: rgba(99,179,237,0.1);
+        border-radius: 3px;
+        overflow: hidden;
+        margin-bottom: 10px;
+      }
+
+      #progressFill {
+        height: 100%;
+        background: linear-gradient(90deg, var(--accent2), var(--accent));
+        width: 0%;
+        transition: width 0.3s ease;
+        border-radius: 3px;
+        box-shadow: 0 0 12px rgba(99,179,237,0.5);
+      }
+
+      #progressText {
+        font-family: var(--mono);
+        font-size: 11px;
+        color: var(--text-muted);
+        letter-spacing: 0.05em;
+      }
+
+      /* METRICS */
+      #metricsContainer {
+        display: none;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 12px;
+        margin-top: 20px;
+      }
+
+      .metric {
+        background: var(--surface2);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 16px;
+        text-align: center;
+      }
+
+      .metric-label {
+        font-family: var(--mono);
+        font-size: 10px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--text-muted);
+        margin-bottom: 8px;
+      }
+
+      .metric-value {
+        font-family: var(--mono);
+        font-size: 1.6rem;
+        font-weight: 700;
+        color: var(--accent);
+        line-height: 1;
+      }
+
+      /* DRAW SECTION */
+      .draw-layout {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 24px;
+        align-items: start;
+      }
+
+      .canvas-wrap {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .canvas-frame {
+        position: relative;
+        display: inline-block;
+      }
+
+      .canvas-frame::before,
+      .canvas-frame::after {
+        content: '';
+        position: absolute;
+        width: 16px; height: 16px;
+        z-index: 2;
+        pointer-events: none;
+      }
+      .canvas-frame::before { top: -2px; left: -2px; border-top: 2px solid var(--accent); border-left: 2px solid var(--accent); border-radius: 3px 0 0 0; }
+      .canvas-frame::after { bottom: -2px; right: -2px; border-bottom: 2px solid var(--accent); border-right: 2px solid var(--accent); border-radius: 0 0 3px 0; }
+
+      #drawCanvas {
+        display: block;
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        cursor: crosshair;
+        background: #fff;
+        touch-action: none;
+      }
+
+      .canvas-hint {
+        font-family: var(--mono);
+        font-size: 10px;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--text-muted);
+      }
+
+      /* PREDICTION PANEL */
+      .predict-panel {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+
+      #predictionResult {
+        display: none;
+      }
+
+      .pred-hero {
+        background: var(--surface2);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 24px;
+        text-align: center;
+      }
+
+      .pred-digit {
+        font-family: var(--mono);
+        font-size: 5rem;
+        font-weight: 700;
+        color: var(--accent);
+        line-height: 1;
+        margin-bottom: 6px;
+        text-shadow: 0 0 40px rgba(99,179,237,0.4);
+      }
+
+      .pred-conf {
+        font-family: var(--mono);
+        font-size: 12px;
+        color: var(--text-muted);
+        letter-spacing: 0.08em;
+      }
+
+      .prob-bars {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .prob-row {
+        display: grid;
+        grid-template-columns: 20px 1fr 48px;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .prob-digit {
+        font-family: var(--mono);
+        font-size: 11px;
+        color: var(--text-muted);
+        text-align: center;
+      }
+
+      .prob-track {
+        height: 6px;
+        background: rgba(99,179,237,0.08);
+        border-radius: 3px;
+        overflow: hidden;
+      }
+
+      .prob-fill {
+        height: 100%;
+        background: linear-gradient(90deg, var(--accent2), var(--accent));
+        border-radius: 3px;
+        transition: width 0.4s ease;
+      }
+
+      .prob-pct {
+        font-family: var(--mono);
+        font-size: 10px;
+        color: var(--text-muted);
+        text-align: right;
+      }
+
+      #predictBtn {
+        width: 100%;
+        padding: 16px;
+        margin-top: 0;
+        font-size: 13px;
+      }
+
+      /* TEST SAMPLES */
+      #testSection { display: none; }
+
+      #testResults {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(70px, 1fr));
+        gap: 12px;
+        margin-top: 4px;
+      }
+
+      .test-sample {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 6px;
+        background: var(--surface2);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 10px 6px;
+      }
+
+      .test-sample canvas {
+        width: 56px !important;
+        height: 56px !important;
+        border: none !important;
+        border-radius: 4px;
+        image-rendering: pixelated;
+      }
+
+      .test-label {
+        font-family: var(--mono);
+        font-size: 10px;
+        letter-spacing: 0.04em;
+      }
+
+      .correct { color: var(--accent3); }
+      .incorrect { color: var(--danger); }
+
+      /* RESPONSIVE */
+      @media (max-width: 640px) {
+        .draw-layout { grid-template-columns: 1fr; }
+        #metricsContainer { grid-template-columns: 1fr 1fr; }
+        #drawCanvas { width: 260px !important; height: 260px !important; }
+        h1 { font-size: 2rem; }
+      }
+
+      /* Fade-in animation */
+      .card { animation: fadeUp 0.4s ease both; }
+      .card:nth-child(2) { animation-delay: 0.08s; }
+      .card:nth-child(3) { animation-delay: 0.16s; }
+      .card:nth-child(4) { animation-delay: 0.24s; }
+
+      @keyframes fadeUp {
+        from { opacity: 0; transform: translateY(16px); }
+        to   { opacity: 1; transform: translateY(0); }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page-wrap">
+      <header>
+        <div class="chip">TensorFlow.js · CNN · MNIST</div>
+        <h1>Digit Recognition</h1>
+        <p class="subtitle">Train a convolutional neural network in your browser</p>
+      </header>
+
+      <!-- Model Control Card -->
+      <div class="card">
+        <div class="card-title">Model Control</div>
+        <div id="status">Ready to train. Click "Train Model" to begin.</div>
+
+        <div class="btn-row">
+          <button id="trainBtn" onclick="trainModel()">⬡ Train Model</button>
+          <button id="evaluateBtn" onclick="evaluateModel()" disabled>◈ Evaluate</button>
+          <button id="clearBtn" onclick="clearCanvas()">↺ Clear Canvas</button>
+        </div>
+
+        <div id="progressContainer">
+          <div class="progress-track"><div id="progressFill"></div></div>
+          <div id="progressText">Initializing…</div>
+        </div>
+
+        <div class="metrics" id="metricsContainer">
+          <div class="metric">
+            <div class="metric-label">Train Acc</div>
+            <div class="metric-value" id="trainAccuracy">--</div>
+          </div>
+          <div class="metric">
+            <div class="metric-label">Test Acc</div>
+            <div class="metric-value" id="testAccuracy">--</div>
+          </div>
+          <div class="metric">
+            <div class="metric-label">Train Loss</div>
+            <div class="metric-value" id="trainLoss">--</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Draw Card -->
+      <div class="card">
+        <div class="card-title">Draw a Digit</div>
+        <div class="draw-layout">
+          <div class="canvas-wrap">
+            <div class="canvas-frame">
+              <canvas id="drawCanvas" width="280" height="280"></canvas>
+            </div>
+            <span class="canvas-hint">Draw 0–9 with mouse or touch</span>
+          </div>
+
+          <div class="predict-panel">
+            <button id="predictBtn" onclick="predictDigit()" disabled>⬡ Predict Digit</button>
+
+            <div id="predictionResult">
+              <div class="pred-hero">
+                <div class="pred-digit" id="predictedDigit">—</div>
+                <div class="pred-conf" id="predictionConfidence">Confidence: —</div>
+              </div>
+              <div class="prob-bars" id="predictionsGrid"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Test Samples Card -->
+      <div class="card" id="testSection">
+        <div class="card-title">Test Samples</div>
+        <div id="testResults"></div>
+      </div>
+    </div>
+
+    <script>
+      /* ─────────────────────────────────────────────
+         CANVAS
+      ───────────────────────────────────────────── */
+      let model;
+      let isDrawing = false;
+      let canvas, ctx;
+
+      function initCanvas() {
+        canvas = document.getElementById("drawCanvas");
+        ctx = canvas.getContext("2d");
+        ctx.fillStyle = "white";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.strokeStyle = "black";
+        ctx.lineWidth = 20;
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+
+        canvas.addEventListener("mousedown", startDrawing);
+        canvas.addEventListener("mousemove", draw);
+        canvas.addEventListener("mouseup", stopDrawing);
+        canvas.addEventListener("mouseout", stopDrawing);
+        canvas.addEventListener("touchstart", handleTouch, { passive: false });
+        canvas.addEventListener("touchmove", handleTouch, { passive: false });
+        canvas.addEventListener("touchend", stopDrawing);
+      }
+
+      function startDrawing(e) {
+        isDrawing = true;
+        const rect = canvas.getBoundingClientRect();
+        ctx.beginPath();
+        ctx.moveTo(e.clientX - rect.left, e.clientY - rect.top);
+      }
+
+      function draw(e) {
+        if (!isDrawing) return;
+        const rect = canvas.getBoundingClientRect();
+        ctx.lineTo(e.clientX - rect.left, e.clientY - rect.top);
+        ctx.stroke();
+      }
+
+      function stopDrawing() { isDrawing = false; }
+
+      function handleTouch(e) {
+        e.preventDefault();
+        const touch = e.touches[0];
+        canvas.dispatchEvent(new MouseEvent(
+          e.type === "touchstart" ? "mousedown" : "mousemove",
+          { clientX: touch.clientX, clientY: touch.clientY }
+        ));
+      }
+
+      function clearCanvas() {
+        ctx.fillStyle = "white";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        document.getElementById("predictionResult").style.display = "none";
+      }
+
+      /* ─────────────────────────────────────────────
+         CONSTANTS
+      ───────────────────────────────────────────── */
+      const IMAGE_SIZE = 784;
+      const NUM_CLASSES = 10;
+      const NUM_DATASET_ELEMENTS = 65000;
+      const NUM_TRAIN_ELEMENTS = 55000;
+      const NUM_TEST_ELEMENTS = NUM_DATASET_ELEMENTS - NUM_TRAIN_ELEMENTS;
+
+      /* ─────────────────────────────────────────────
+         MODEL
+      ───────────────────────────────────────────── */
+      function createModel() {
+        const m = tf.sequential();
+        m.add(tf.layers.conv2d({ inputShape: [28,28,1], filters:32, kernelSize:3, activation:"relu", padding:"same" }));
+        m.add(tf.layers.maxPooling2d({ poolSize:2 }));
+        m.add(tf.layers.conv2d({ filters:64, kernelSize:3, activation:"relu", padding:"same" }));
+        m.add(tf.layers.maxPooling2d({ poolSize:2 }));
+        m.add(tf.layers.conv2d({ filters:64, kernelSize:3, activation:"relu", padding:"same" }));
+        m.add(tf.layers.flatten());
+        m.add(tf.layers.dropout({ rate:0.5 }));
+        m.add(tf.layers.dense({ units:128, activation:"relu" }));
+        m.add(tf.layers.dropout({ rate:0.5 }));
+        m.add(tf.layers.dense({ units:10, activation:"softmax" }));
+        return m;
+      }
+
+      /* ─────────────────────────────────────────────
+         MNIST DATA
+      ───────────────────────────────────────────── */
+      class MnistData {
+        constructor() { this.shuffledTrainIndex = 0; this.shuffledTestIndex = 0; }
+
+        async load() {
+          const SPRITE = "https://storage.googleapis.com/learnjs-data/model-builder/mnist_images.png";
+          const LABELS = "https://storage.googleapis.com/learnjs-data/model-builder/mnist_labels_uint8";
+
+          const img = new Image();
+          const offCanvas = document.createElement("canvas");
+          const offCtx = offCanvas.getContext("2d");
+
+          const imgRequest = new Promise((resolve, reject) => {
+            img.crossOrigin = "";
+            img.onload = () => {
+              img.width = img.naturalWidth; img.height = img.naturalHeight;
+              const buf = new ArrayBuffer(NUM_DATASET_ELEMENTS * IMAGE_SIZE * 4);
+              const chunkSize = 5000;
+              offCanvas.width = img.width; offCanvas.height = chunkSize;
+              for (let i = 0; i < NUM_DATASET_ELEMENTS / chunkSize; i++) {
+                const view = new Float32Array(buf, i * IMAGE_SIZE * chunkSize * 4, IMAGE_SIZE * chunkSize);
+                offCtx.drawImage(img, 0, i*chunkSize, img.width, chunkSize, 0, 0, img.width, chunkSize);
+                const pixels = offCtx.getImageData(0, 0, offCanvas.width, offCanvas.height);
+                for (let j = 0; j < pixels.data.length / 4; j++) view[j] = pixels.data[j*4] / 255;
+              }
+              this.datasetImages = new Float32Array(buf);
+              resolve();
+            };
+            img.onerror = reject;
+            img.src = SPRITE;
+          });
+
+          const [, labelsResponse] = await Promise.all([imgRequest, fetch(LABELS)]);
+          this.datasetLabels = new Uint8Array(await labelsResponse.arrayBuffer());
+
+          this.trainIndices = tf.util.createShuffledIndices(NUM_TRAIN_ELEMENTS);
+          this.testIndices  = tf.util.createShuffledIndices(NUM_TEST_ELEMENTS);
+
+          this.trainImages = this.datasetImages.slice(0, IMAGE_SIZE * NUM_TRAIN_ELEMENTS);
+          this.testImages  = this.datasetImages.slice(IMAGE_SIZE * NUM_TRAIN_ELEMENTS);
+          this.trainLabels = this.datasetLabels.slice(0, NUM_CLASSES * NUM_TRAIN_ELEMENTS);
+          this.testLabels  = this.datasetLabels.slice(NUM_CLASSES * NUM_TRAIN_ELEMENTS);
+        }
+
+        nextTrainBatch(n) { return this.nextBatch(n, [this.trainImages, this.trainLabels], () => { this.shuffledTrainIndex = (this.shuffledTrainIndex+1) % this.trainIndices.length; return this.trainIndices[this.shuffledTrainIndex]; }); }
+        nextTestBatch(n)  { return this.nextBatch(n, [this.testImages,  this.testLabels],  () => { this.shuffledTestIndex  = (this.shuffledTestIndex +1) % this.testIndices.length;  return this.testIndices[this.shuffledTestIndex]; }); }
+
+        nextBatch(n, data, idx) {
+          const imgs   = new Float32Array(n * IMAGE_SIZE);
+          const labels = new Uint8Array(n * NUM_CLASSES);
+          for (let i = 0; i < n; i++) {
+            const k = idx();
+            imgs.set(data[0].slice(k * IMAGE_SIZE, k * IMAGE_SIZE + IMAGE_SIZE), i * IMAGE_SIZE);
+            labels.set(data[1].slice(k * NUM_CLASSES, k * NUM_CLASSES + NUM_CLASSES), i * NUM_CLASSES);
+          }
+          const xs = tf.tensor2d(imgs, [n, IMAGE_SIZE]);
+          return { xs: xs.reshape([n,28,28,1]), labels: tf.tensor2d(labels, [n, NUM_CLASSES]) };
+        }
+      }
+
+      /* ─────────────────────────────────────────────
+         TRAIN
+      ───────────────────────────────────────────── */
+      function setStatus(msg) { document.getElementById("status").textContent = msg; }
+
+      async function trainModel() {
+        setStatus("Loading MNIST dataset…");
+        document.getElementById("trainBtn").disabled = true;
+        document.getElementById("progressContainer").style.display = "block";
+
+        try {
+          const data = new MnistData();
+          await data.load();
+          window.mnistData = data;
+
+          setStatus("Building CNN model…");
+          model = createModel();
+          model.compile({ optimizer: tf.train.adam(0.001), loss: "categoricalCrossentropy", metrics: ["accuracy"] });
+
+          const batchSize = 512;
+          const epochs = 5;
+          const batchesPerEpoch = Math.floor(NUM_TRAIN_ELEMENTS / batchSize);
+          const totalBatches = epochs * batchesPerEpoch;
+
+          for (let epoch = 0; epoch < epochs; epoch++) {
+            let sumLoss = 0, sumAcc = 0;
+
+            for (let b = 0; b < batchesPerEpoch; b++) {
+              const batch = data.nextTrainBatch(batchSize);
+              const history = await model.fit(batch.xs, batch.labels, { batchSize, epochs:1, verbose:0 });
+              sumLoss += history.history.loss[0];
+              sumAcc  += history.history.acc[0];
+              batch.xs.dispose(); batch.labels.dispose();
+
+              const done = epoch * batchesPerEpoch + b + 1;
+              const pct  = Math.round(done / totalBatches * 100);
+              document.getElementById("progressFill").style.width = pct + "%";
+              document.getElementById("progressText").textContent =
+                `Epoch ${epoch+1}/${epochs} · Batch ${b+1}/${batchesPerEpoch} · ${pct}%`;
+            }
+
+            const avgLoss = sumLoss / batchesPerEpoch;
+            const avgAcc  = sumAcc  / batchesPerEpoch;
+
+            document.getElementById("trainAccuracy").textContent = (avgAcc * 100).toFixed(1) + "%";
+            document.getElementById("trainLoss").textContent = avgLoss.toFixed(4);
+            document.getElementById("metricsContainer").style.display = "grid";
+            await tf.nextFrame();
+          }
+
+          setStatus("✓ Model trained. Draw a digit or click Evaluate.");
+          document.getElementById("evaluateBtn").disabled = false;
+          document.getElementById("predictBtn").disabled  = false;
+          document.getElementById("progressContainer").style.display = "none";
+        } catch(err) {
+          setStatus("✗ Error: " + err.message);
+          document.getElementById("trainBtn").disabled = false;
+          document.getElementById("progressContainer").style.display = "none";
+        }
+      }
+
+      /* ─────────────────────────────────────────────
+         EVALUATE
+      ───────────────────────────────────────────── */
+      async function evaluateModel() {
+        setStatus("Evaluating on test set…");
+        document.getElementById("evaluateBtn").disabled = true;
+
+        try {
+          const data = window.mnistData;
+          const batchSize = 1000;
+          const numBatches = Math.floor(NUM_TEST_ELEMENTS / batchSize);
+          let correct = 0, totalLoss = 0;
+
+          for (let i = 0; i < numBatches; i++) {
+            const b = data.nextTestBatch(batchSize);
+            const res = await model.evaluate(b.xs, b.labels, { batchSize });
+            const preds = model.predict(b.xs);
+            const predClasses = preds.argMax(-1);
+            const trueClasses = b.labels.argMax(-1);
+            const c = await predClasses.equal(trueClasses).sum().data();
+            correct += c[0];
+            const lossData = await res[0].data();
+            totalLoss += lossData[0];
+            b.xs.dispose(); b.labels.dispose(); preds.dispose();
+            predClasses.dispose(); trueClasses.dispose();
+            res[0].dispose(); res[1].dispose();
+          }
+
+          const acc = correct / (numBatches * batchSize);
+          const avgLoss = totalLoss / numBatches;
+          document.getElementById("testAccuracy").textContent = (acc * 100).toFixed(1) + "%";
+          setStatus(`✓ Test Accuracy: ${(acc*100).toFixed(2)}%  ·  Loss: ${avgLoss.toFixed(4)}`);
+          await showTestSamples();
+          document.getElementById("evaluateBtn").disabled = false;
+        } catch(err) {
+          setStatus("✗ Evaluation error: " + err.message);
+          document.getElementById("evaluateBtn").disabled = false;
+        }
+      }
+
+      /* ─────────────────────────────────────────────
+         TEST SAMPLES
+      ───────────────────────────────────────────── */
+      async function showTestSamples() {
+        const n = 20;
+        const data = window.mnistData;
+        const section = document.getElementById("testSection");
+        const results = document.getElementById("testResults");
+        results.innerHTML = "";
+        section.style.display = "block";
+
+        for (let i = 0; i < n; i++) {
+          const b = data.nextTestBatch(1);
+          const pred = model.predict(b.xs);
+          const predClass = (await pred.argMax(-1).data())[0];
+          const trueClass = (await b.labels.argMax(-1).data())[0];
+          const ok = predClass === trueClass;
+
+          const sDiv = document.createElement("div"); sDiv.className = "test-sample";
+          const sc = document.createElement("canvas"); sc.width = 28; sc.height = 28;
+          const sCtx = sc.getContext("2d");
+          const pixels = await b.xs.reshape([28,28]).data();
+          const imgData = sCtx.createImageData(28,28);
+          for (let j = 0; j < 784; j++) {
+            const v = pixels[j] * 255;
+            imgData.data[j*4] = imgData.data[j*4+1] = imgData.data[j*4+2] = v;
+            imgData.data[j*4+3] = 255;
+          }
+          sCtx.putImageData(imgData, 0, 0);
+
+          const lbl = document.createElement("div");
+          lbl.className = "test-label " + (ok ? "correct" : "incorrect");
+          lbl.textContent = `${ok ? "✓" : "✗"} ${predClass}/${trueClass}`;
+
+          sDiv.appendChild(sc); sDiv.appendChild(lbl);
+          results.appendChild(sDiv);
+          b.xs.dispose(); b.labels.dispose(); pred.dispose();
+        }
+      }
+
+      /* ─────────────────────────────────────────────
+         PREDICT
+      ───────────────────────────────────────────── */
+      async function predictDigit() {
+        try {
+          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          const tensor = tf.tidy(() => {
+            let img = tf.browser.fromPixels(imageData, 1);
+            img = tf.image.resizeBilinear(img, [28, 28]);
+            img = tf.scalar(1.0).sub(img.div(255.0));
+            return img.reshape([1, 28, 28, 1]);
+          });
+
+          const prediction = model.predict(tensor);
+          const probs = await prediction.data();
+          const predClass = await prediction.argMax(-1).data();
+
+          document.getElementById("predictionResult").style.display = "block";
+          document.getElementById("predictedDigit").textContent = predClass[0];
+          document.getElementById("predictionConfidence").textContent =
+            "Confidence: " + (probs[predClass[0]] * 100).toFixed(2) + "%";
+
+          const grid = document.getElementById("predictionsGrid");
+          grid.innerHTML = "";
+          for (let i = 0; i < 10; i++) {
+            const pct = (probs[i] * 100).toFixed(1);
+            const row = document.createElement("div");
+            row.className = "prob-row";
+            row.innerHTML = `
+              <div class="prob-digit">${i}</div>
+              <div class="prob-track"><div class="prob-fill" style="width:${pct}%"></div></div>
+              <div class="prob-pct">${pct}%</div>
+            `;
+            grid.appendChild(row);
+          }
+
+          tensor.dispose(); prediction.dispose();
+        } catch(err) {
+          setStatus("✗ Prediction error: " + err.message);
+        }
+      }
+
+      /* ─────────────────────────────────────────────
+         INIT
+      ───────────────────────────────────────────── */
+      window.onload = async () => {
+        await tf.setBackend('cpu');
+        await tf.ready();
+        initCanvas();
+      };
+    </script>
+  </body>
+</html>
